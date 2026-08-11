@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "easybuy",
+    "slug": "easybuy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/easybuy_logo.png",
+    "scheme": "easybuy",
+    "backgroundColor": "#FFF5C6",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/easybuy_logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFF5C6"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "backgroundColor": "#FFF5C6",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFF5C6",
+        "foregroundImage": "./assets/images/easybuy_logo.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/easybuy_logo.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/easybuy_logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF5C6",
+          "dark": {
+            "backgroundColor": "#FFF5C6"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
