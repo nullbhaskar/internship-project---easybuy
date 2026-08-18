@@ -44,11 +44,11 @@ const C = {
 
 export default function CartScreen() {
   const router = useRouter();
-  const { isGuest, isAuthenticated, requireAuth } = useAuth();
+  const { isGuest, isAuthenticated, user, requireAuth } = useAuth();
   const { cartItems, updateQuantity, removeFromCart, clearCart, subtotal, deliveryFee, totalAmount, totalItems } = useCart();
 
   React.useEffect(() => {
-    if (isGuest || !auth.currentUser) {
+    if (isGuest || !isAuthenticated) {
       requireAuth('proceed to checkout');
       router.replace('/home');
     }
@@ -77,12 +77,12 @@ export default function CartScreen() {
     try {
       const ref = doc(collection(db, 'orders'));
       const orderId = `#EB-${Math.floor(100000 + Math.random() * 900000)}`;
-      const user = auth.currentUser;
+      const activeUser = user || auth.currentUser;
       const orderData = {
         id: ref.id,
         orderId,
-        userEmail: user?.email || 'guest@easybuy.com',
-        userId: user?.uid || 'guest',
+        userEmail: activeUser?.email || 'guest@easybuy.com',
+        userId: activeUser?.uid || 'guest',
         date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         createdAt: new Date().toISOString(),
         itemCount: totalItems,

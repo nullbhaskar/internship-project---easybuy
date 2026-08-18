@@ -83,10 +83,10 @@ export default function OrdersScreen() {
   const router = useRouter();
   const { isDarkMode } = useEasyBuyTheme();
   const isDark = isDarkMode;
-  const { isGuest, isAuthenticated, requireAuth } = useAuth();
+  const { isGuest, isAuthenticated, user, requireAuth } = useAuth();
 
   useEffect(() => {
-    if (isGuest || !auth.currentUser) {
+    if (isGuest || !isAuthenticated) {
       requireAuth('view your orders');
       router.replace('/home');
     }
@@ -111,8 +111,10 @@ export default function OrdersScreen() {
 
   // Real-time Firestore Order Listener
   useEffect(() => {
+    if (!isAuthenticated || isGuest) return;
     setLoading(true);
-    const currentUser = auth.currentUser;
+    const activeUser = user || auth.currentUser;
+    const activeEmail = activeUser?.email;
     const collRef = collection(db, 'orders');
 
     const unsubscribe = onSnapshot(
@@ -128,7 +130,10 @@ export default function OrdersScreen() {
           if (data.status === 'Shipped') stepIndex = 3;
           if (data.status === 'Delivered') stepIndex = 4;
 
-          if (!currentUser || !data.userEmail || data.userEmail === currentUser.email || currentUser.email === 'admineasybuy@gmail.com') {
+          const matchUser = activeEmail && data.userEmail && data.userEmail.toLowerCase() === activeEmail.toLowerCase();
+          const isAdmin = activeEmail === 'admineasybuy@gmail.com';
+
+          if (matchUser || isAdmin || !data.userEmail) {
             fetched.push({
               id: docSnap.id,
               orderId: data.orderId || `#EB-${docSnap.id.substring(0, 6).toUpperCase()}`,
@@ -241,8 +246,8 @@ export default function OrdersScreen() {
   const handleSubmitReview = async (productId: string, itemTitle: string) => {
     const rating = productRatings[productId] || 5;
     const comment = productComments[productId] || '';
-    const user = auth.currentUser;
-    const reviewer = user?.displayName || user?.email?.split('@')[0] || 'EasyBuy Customer';
+    const activeUser: any = user || auth.currentUser;
+    const reviewer = activeUser?.fullName || activeUser?.displayName || activeUser?.email?.split('@')[0] || 'EasyBuy Customer';
 
     setSubmittingReviewId(productId);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -749,13 +754,13 @@ export default function OrdersScreen() {
                 <View style={S.infoRowItem}>
                   <Text style={S.infoRowLabel}>Recipient Owner:</Text>
                   <Text style={[S.infoRowVal, isDark && S.textLight]}>
-                    {auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Bhaskar Das'}
+                    {user?.fullName || auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Bhaskar Das'}
                   </Text>
                 </View>
                 <View style={S.infoRowItem}>
                   <Text style={S.infoRowLabel}>Registered Email:</Text>
                   <Text style={[S.infoRowVal, isDark && S.textLight]}>
-                    {auth.currentUser?.email || 'bhaskar@example.com'}
+                    {user?.email || auth.currentUser?.email || 'bhaskar@example.com'}
                   </Text>
                 </View>
                 <View style={S.infoRowItem}>

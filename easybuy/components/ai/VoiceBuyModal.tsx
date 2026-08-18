@@ -152,7 +152,7 @@ export const VoiceBuyModal: React.FC<VoiceBuyModalProps> = ({
       // Universal ChatGPT-Style AI Shopping Engine (Handles Birthday Gifts, Outfits, Recipes, Skincare, Groceries)
       const res = await processUniversalAIShopping(text, selectedStateName);
 
-      if (res && res.items && res.items.length > 0) {
+      if (res) {
         setAiResult(res);
         const selMap: Record<string, boolean> = {};
         res.items.forEach((it) => {
@@ -328,116 +328,145 @@ export const VoiceBuyModal: React.FC<VoiceBuyModalProps> = ({
               </View>
 
               {/* Bundle Header */}
-              <View style={[styles.bundleHeaderCard, isDarkMode && styles.bundleHeaderCardDark]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Text style={{ fontSize: 30 }}>{aiResult.emoji}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.bundleTitle, isDarkMode && { color: '#F8FAFC' }]}>
-                      {aiResult.title}
-                    </Text>
-                    <Text style={[styles.bundleSubtitle, isDarkMode && { color: '#94A3B8' }]} numberOfLines={2}>
-                      {aiResult.tagline}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Optional Guide / Steps */}
-                {aiResult.steps && aiResult.steps.length > 0 && (
-                  <View style={{ marginTop: 8 }}>
-                    <TouchableOpacity
-                      style={styles.stepsToggle}
-                      onPress={() => setShowSteps(!showSteps)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="bulb-outline" size={13} color="#10B981" />
-                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>
-                        {showSteps ? 'Hide Guide' : 'View Quick Guide'}
+              {aiResult.items.length > 0 ? (
+                <View style={[styles.bundleHeaderCard, isDarkMode && styles.bundleHeaderCardDark]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Text style={{ fontSize: 30 }}>{aiResult.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.bundleTitle, isDarkMode && { color: '#F8FAFC' }]}>
+                        {aiResult.title}
                       </Text>
-                    </TouchableOpacity>
-                    {showSteps && (
-                      <View style={styles.stepsBox}>
-                        {aiResult.steps.map((st, sidx) => (
-                          <Text key={sidx} style={styles.stepTxt}>
-                            {st}
-                          </Text>
-                        ))}
-                      </View>
-                    )}
+                      <Text style={[styles.bundleSubtitle, isDarkMode && { color: '#94A3B8' }]} numberOfLines={2}>
+                        {aiResult.tagline}
+                      </Text>
+                    </View>
                   </View>
-                )}
-              </View>
+
+                  {/* Optional Guide / Steps */}
+                  {aiResult.steps && aiResult.steps.length > 0 && (
+                    <View style={{ marginTop: 8 }}>
+                      <TouchableOpacity
+                        style={styles.stepsToggle}
+                        onPress={() => setShowSteps(!showSteps)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="bulb-outline" size={13} color="#10B981" />
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>
+                          {showSteps ? 'Hide Guide' : 'View Quick Guide'}
+                        </Text>
+                      </TouchableOpacity>
+                      {showSteps && (
+                        <View style={styles.stepsBox}>
+                          {aiResult.steps.map((st, sidx) => (
+                            <Text key={sidx} style={styles.stepTxt}>
+                              {st}
+                            </Text>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={[styles.bundleHeaderCard, isDarkMode && styles.bundleHeaderCardDark, { alignItems: 'center', paddingVertical: 20 }]}>
+                  <Ionicons name="search-outline" size={40} color="#94A3B8" />
+                  <Text style={[styles.bundleTitle, { marginTop: 10, textAlign: 'center' }, isDarkMode && { color: '#F8FAFC' }]}>
+                    Item Not Available on EasyBuy
+                  </Text>
+                  <Text style={[styles.bundleSubtitle, { textAlign: 'center', marginTop: 4 }, isDarkMode && { color: '#94A3B8' }]}>
+                    Try asking for generic items (e.g. bat, tea, grocery, hoodies, sneakers) instead of specific luxury or premium brands.
+                  </Text>
+                </View>
+              )}
 
               {/* Items List */}
-              <Text style={[styles.itemsListLabel, isDarkMode && { color: '#94A3B8' }]}>
-                RECOMMENDED ITEMS ({selectedCount}/{aiResult.items.length})
-              </Text>
+              {aiResult.items.length > 0 && (
+                <>
+                  <Text style={[styles.itemsListLabel, isDarkMode && { color: '#94A3B8' }]}>
+                    RECOMMENDED ITEMS ({selectedCount}/{aiResult.items.length})
+                  </Text>
 
-              <ScrollView style={styles.itemList} showsVerticalScrollIndicator={false}>
-                {aiResult.items.map((it) => {
-                  const isChecked = selectedItemsMap[it.id];
-                  return (
-                    <TouchableOpacity
-                      key={it.id}
-                      style={[
-                        styles.itemCardRow,
-                        isDarkMode && styles.itemRowDark,
-                        isChecked && styles.itemCardRowSelected,
-                      ]}
-                      onPress={() => toggleItem(it.id)}
-                      activeOpacity={0.8}
-                    >
-                      <TouchableOpacity onPress={() => toggleItem(it.id)}>
-                        <Ionicons
-                          name={isChecked ? 'checkbox' : 'square-outline'}
-                          size={22}
-                          color={isChecked ? '#10B981' : '#8A8FA8'}
-                        />
-                      </TouchableOpacity>
-
-                      {it.image && (
-                        <Image source={{ uri: it.image }} style={styles.itemThumbnail} resizeMode="cover" />
-                      )}
-
-                      <View style={{ flex: 1 }}>
-                        <Text
+                  <ScrollView style={styles.itemList} showsVerticalScrollIndicator={false}>
+                    {aiResult.items.map((it) => {
+                      const isChecked = selectedItemsMap[it.id];
+                      return (
+                        <TouchableOpacity
+                          key={it.id}
                           style={[
-                            styles.itemName,
-                            isDarkMode && { color: '#F8FAFC' },
-                            !isChecked && { color: '#94A3B8', textDecorationLine: 'line-through' },
+                            styles.itemCardRow,
+                            isDarkMode && styles.itemRowDark,
+                            isChecked && styles.itemCardRowSelected,
                           ]}
-                          numberOfLines={1}
+                          onPress={() => toggleItem(it.id)}
+                          activeOpacity={0.8}
                         >
-                          {it.name}
-                        </Text>
-                        <Text style={styles.itemReasonTxt} numberOfLines={1}>
-                          {it.reason || it.quantity || it.category}
-                        </Text>
-                      </View>
+                          <TouchableOpacity onPress={() => toggleItem(it.id)}>
+                            <Ionicons
+                              name={isChecked ? 'checkbox' : 'square-outline'}
+                              size={22}
+                              color={isChecked ? '#10B981' : '#8A8FA8'}
+                            />
+                          </TouchableOpacity>
 
-                      <Text style={[styles.itemPriceTxt, isDarkMode && { color: '#F8FAFC' }]}>
-                        ₹{it.price}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                          {it.image && (
+                            <Image source={{ uri: it.image }} style={styles.itemThumbnail} resizeMode="cover" />
+                          )}
+
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                styles.itemName,
+                                isDarkMode && { color: '#F8FAFC' },
+                                !isChecked && { color: '#94A3B8', textDecorationLine: 'line-through' },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {it.name}
+                            </Text>
+                            <Text style={styles.itemReasonTxt} numberOfLines={1}>
+                              {it.reason || it.quantity || it.category}
+                            </Text>
+                          </View>
+
+                          <Text style={[styles.itemPriceTxt, isDarkMode && { color: '#F8FAFC' }]}>
+                            ₹{it.price}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </>
+              )}
 
               {/* 1-Tap Add All Button */}
-              <TouchableOpacity
-                style={[
-                  styles.addAllBtn,
-                  { backgroundColor: '#10B981' },
-                  selectedCount === 0 && { opacity: 0.5 },
-                ]}
-                onPress={handleAddSelectedToCart}
-                disabled={selectedCount === 0}
-                activeOpacity={0.88}
-              >
-                <Ionicons name="flash" size={18} color="#FFFFFF" />
-                <Text style={styles.addAllBtnTxt}>
-                  ⚡ Add {selectedCount} Items to Cart • ₹{selectedTotal}
-                </Text>
-              </TouchableOpacity>
+              {aiResult.items.length > 0 ? (
+                <TouchableOpacity
+                  style={[
+                    styles.addAllBtn,
+                    { backgroundColor: '#10B981' },
+                    selectedCount === 0 && { opacity: 0.5 },
+                  ]}
+                  onPress={handleAddSelectedToCart}
+                  disabled={selectedCount === 0}
+                  activeOpacity={0.88}
+                >
+                  <Ionicons name="flash" size={18} color="#FFFFFF" />
+                  <Text style={styles.addAllBtnTxt}>
+                    ⚡ Add {selectedCount} Items to Cart • ₹{selectedTotal}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.addAllBtn, { backgroundColor: '#475569' }]}
+                  onPress={startListening}
+                  activeOpacity={0.88}
+                >
+                  <Ionicons name="mic-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.addAllBtnTxt}>
+                    🎙️ Try Speaking Another Query
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity style={styles.retryLink} onPress={startListening}>
                 <Text style={[styles.retryLinkTxt, { color: '#10B981' }]}>

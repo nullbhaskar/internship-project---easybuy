@@ -1,5 +1,7 @@
-// ─── GROQ AI SERVICE ───────────────────────────────────────────────────────
-// Wraps Groq REST API for use in Expo React Native (no Node SDK needed)
+// ─── GROQ AI SERVICE ─────────────────────────────────────────────────────────
+// Catalog-grounded, state-aware EasyBuy AI — NEVER hallucinates products.
+
+import { generateFullIndianCatalog, ProductItem } from '../constants/catalogGenerator';
 
 const GROQ_API_KEY = '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';
 const GROQ_MODEL   = 'openai/gpt-oss-120b';
@@ -10,25 +12,11 @@ export interface GroqMessage {
   content: string;
 }
 
-export interface GroqChoice {
-  message: { role: string; content: string };
-  finish_reason: string;
-}
-
 export interface GroqResponse {
-  choices: GroqChoice[];
+  choices: { message: { role: string; content: string }; finish_reason: string }[];
 }
 
-/**
- * Call Groq chat completions API.
- * @param messages  Conversation turns
- * @param maxTokens Max tokens to generate (default 512)
- * @returns         The assistant reply string
- */
-export async function callGroq(
-  messages: GroqMessage[],
-  maxTokens = 512
-): Promise<string> {
+export async function callGroq(messages: GroqMessage[], maxTokens = 512): Promise<string> {
   try {
     const res = await fetch(GROQ_URL, {
       method: 'POST',
@@ -40,15 +28,13 @@ export async function callGroq(
         model: GROQ_MODEL,
         messages,
         max_tokens: maxTokens,
-        temperature: 0.7,
+        temperature: 0.4, // lower = more consistent, less hallucination
       }),
     });
-
     if (!res.ok) {
       const err = await res.text();
       throw new Error(`Groq API error ${res.status}: ${err}`);
     }
-
     const json: GroqResponse = await res.json();
     return json.choices?.[0]?.message?.content?.trim() ?? '';
   } catch (e: any) {
@@ -57,75 +43,226 @@ export async function callGroq(
   }
 }
 
-// ─── 1. TIME-AWARE SMART FEED HELPER ───────────────────────────────────────
+// ─── 1. APP KNOWLEDGE BASE ───────────────────────────────────────────────────
+// Comprehensive knowledge about EasyBuy app so AI can guide users correctly
+
+const EASYBUY_APP_KNOWLEDGE = `
+EasyBuy is an Indian state-based Quick Commerce & E-commerce app.
+
+APP STRUCTURE:
+- Home Screen: 12 featured categories shown on homepage
+- All Items / Explore Page: 22 total product categories
+
+22 PRODUCT CATEGORIES IN EXPLORE PAGE:
+1. QuickBuy (10-20 min delivery) - milk, bread, eggs, daily essentials
+2. Electronics & Tech - phones, laptops, earbuds, smartwatches, keyboards
+3. Fashion & Apparel - baggy jeans, cargo pants, oversized tees, hoodies, coord sets
+4. Beauty & Cosmetics - serums, face wash, lip tints, moisturizers, Korean skincare
+5. Home & Living - furniture, decor, lights, storage
+6. Gaming Zone - controllers, gaming accessories, gaming chairs
+7. Study & Office - notebooks, pens, desk organizers, calculators
+8. Fitness & Gym - whey protein, creatine, gym gloves, resistance bands
+9. Hostel Essentials - electric kettles, desk lamps, laptop stands, bedsheets
+10. Grocery & Snacks - local snacks, packaged food, makhana, sattu
+11. Kitchen & Appliances - pressure cooker, induction cooktop, mixer grinder
+12. Lifestyle & Vibe - tumblers, galaxy projectors, aesthetic items
+13. Accessories & Bags - watches, sunglasses, belts, backpacks
+14. Footwear & Kicks - sneakers, sandals, sports shoes
+15. Sports & Outdoors - cricket bat, badminton, football, yoga mat, dumbbells
+16. Pet Care & Food - dog food, cat food, pet toys
+17. Automobile & Bike - car accessories, bike helmets, tyre inflators
+18. Baby Care & Toys - diapers, baby food, rattles, soft toys
+19. Health & Wellness - thermometer, BP monitor, oximeter, vitamins
+20. Gifts & Hampers - gift boxes, celebration kits, hampers
+21. Kitchen (cookware) - kadhai, tawa, pressure cooker
+22. Regional Specialties - state-specific products per location
+
+STATE-BASED SYSTEM:
+- EasyBuy is location-aware: products shown based on user's selected Indian state
+- Bihar → Sattu, Makhana (Mithila), Litchi (Muzaffarpur), local study essentials
+- Haryana → Dairy products, fitness gear, agri tools (NOT Sattu - that's Bihar)
+- Punjab → Dairy, gym nutrition, Phulkari fashion
+- Maharashtra/Mumbai → Streetwear, tech gadgets, K-beauty
+- Karnataka/Bengaluru → Electronics, gaming, filter coffee, tech accessories
+- Kerala → Spices, coconut oil, Ayurveda products
+- Rajasthan → Handicrafts, Mojaris footwear, pickles
+- Goa → Beachwear, lifestyle, beverages
+- West Bengal/Kolkata → Darjeeling tea, Bengali sweets, fashion
+
+IMPORTANT: EasyBuy does NOT carry luxury cricket brand bats like Kookaburra, Gray-Nicolls, or SS Ton.
+EasyBuy carries generic/standard sports equipment in the Sports & Outdoors category.
+EasyBuy does NOT carry: imported luxury items, premium foreign brands not listed above, custom artisan crafts not in catalog.
+`;
+
+// ─── 2. CATALOG SEARCH ENGINE ────────────────────────────────────────────────
+
+let _catalog: ProductItem[] | null = null;
+
+function getCatalog(): ProductItem[] {
+  if (!_catalog) {
+    try {
+      _catalog = generateFullIndianCatalog();
+    } catch {
+      _catalog = [];
+    }
+  }
+  return _catalog;
+}
+
+/**
+ * Search the real EasyBuy catalog for products matching a query + state.
+ * Returns top matches scored by relevance.
+ */
+export function searchCatalog(
+  query: string,
+  stateName?: string,
+  categoryHint?: string,
+  maxResults = 5
+): ProductItem[] {
+  const catalog = getCatalog();
+  const q = query.toLowerCase().trim();
+  const terms = q.split(/\s+/).filter((t) => t.length > 2);
+
+  // Hinglish synonym expansion
+  const SYNONYMS: Record<string, string[]> = {
+    bat: ['cricket', 'sports', 'badminton', 'baseball'],
+    ball: ['cricket', 'football', 'sports'],
+    chai: ['tea', 'tata tea', 'chai patti'],
+    doodh: ['milk', 'dairy'],
+    anda: ['eggs', 'farm fresh'],
+    maggi: ['noodles', 'instant'],
+    sattu: ['sattu', 'grocery', 'bihar', 'protein'],
+    makhana: ['makhana', 'fox nuts', 'grocery', 'snack'],
+    joote: ['shoes', 'sneakers', 'footwear'],
+    kapde: ['clothes', 'fashion', 'hoodie', 'jeans'],
+    ghadi: ['watch', 'smartwatch', 'accessories'],
+    mobile: ['phone', 'smartphone', 'electronics'],
+    laptop: ['laptop', 'macbook', 'electronics'],
+    earphone: ['earbuds', 'headphone', 'electronics'],
+    protein: ['whey', 'protein', 'fitness'],
+    gym: ['fitness', 'protein', 'dumbbell'],
+    gift: ['gift', 'hamper', 'celebration'],
+    cricket: ['sports', 'cricket'],
+    football: ['sports', 'football'],
+    badminton: ['sports', 'badminton'],
+    hoodie: ['fashion', 'hoodie', 'sweatshirt'],
+    jeans: ['fashion', 'jeans', 'denim'],
+    serum: ['beauty', 'serum', 'skincare'],
+  };
+
+  // Expand terms with synonyms
+  const allTerms = [...terms];
+  for (const term of terms) {
+    const syns = SYNONYMS[term];
+    if (syns) allTerms.push(...syns);
+  }
+
+  const scored = catalog
+    .filter((p) => {
+      // State filter (prefer state match, but allow cross-state if scarce)
+      if (stateName && p.stateName && stateName !== p.stateName) return true; // keep but lower score
+      return true;
+    })
+    .map((p) => {
+      const titleLow = (p.title || p.name || '').toLowerCase();
+      const catLow = (p.categoryName || '').toLowerCase();
+      const keyLow = (p.searchKeywords || []).join(' ').toLowerCase();
+      const stateMatch = stateName && p.stateName === stateName;
+
+      let score = 0;
+      for (const t of allTerms) {
+        if (titleLow.includes(t)) score += 5;
+        if (keyLow.includes(t)) score += 3;
+        if (catLow.includes(t)) score += 2;
+        if ((p.categoryId || '').toLowerCase().includes(t)) score += 2;
+      }
+      if (stateMatch) score += 4;
+      if (categoryHint && (p.categoryId || '').includes(categoryHint)) score += 3;
+
+      return { product: p, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      // Tiebreak: prefer state-matching products
+      const aSM = stateName && a.product.stateName === stateName ? 1 : 0;
+      const bSM = stateName && b.product.stateName === stateName ? 1 : 0;
+      return bSM - aSM;
+    });
+
+  // Deduplicate by category to avoid 5 identical products
+  const seen = new Set<string>();
+  const deduped: ProductItem[] = [];
+  for (const { product } of scored) {
+    const key = `${product.categoryId}_${product.title?.slice(0, 20)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(product);
+    }
+    if (deduped.length >= maxResults) break;
+  }
+
+  return deduped;
+}
+
+/**
+ * Check if a specific brand/product type is available in the catalog.
+ * Returns true only if real catalog entries exist.
+ */
+export function isProductAvailable(query: string, stateName?: string): boolean {
+  const results = searchCatalog(query, stateName, undefined, 3);
+  return results.length > 0;
+}
+
+// ─── 3. TIME-AWARE SMART FEED ────────────────────────────────────────────────
 
 export type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'night' | 'latenight';
 
 export function getCurrentTimeSlot(): TimeSlot {
   const h = new Date().getHours();
-  if (h >= 5  && h < 11) return 'morning';
+  if (h >= 5 && h < 11) return 'morning';
   if (h >= 11 && h < 16) return 'afternoon';
   if (h >= 16 && h < 20) return 'evening';
   if (h >= 20 && h < 23) return 'night';
-  return 'latenight';                       // 11 PM – 5 AM
+  return 'latenight';
 }
 
 const TIME_SLOT_CONTEXT: Record<TimeSlot, string> = {
-  morning:   'It is early morning in India (6–11 AM). The user may want fresh groceries, milk, tea, bread, fruits, morning skincare, or study supplies.',
-  afternoon: 'It is afternoon in India (11 AM–4 PM). The user may want snacks, beverages, tech accessories, stationery, or fashion.',
-  evening:   'It is evening in India (4–8 PM). The user may want ethnic wear, beauty products, trending fashion, footwear, or home decor.',
-  night:     'It is night in India (8–11 PM). The user may want cozy hoodies, gaming gear, Korean skincare, late-night snacks, or beverages.',
-  latenight: 'It is late night / Night Owl mode in India (11 PM–5 AM). The user may want instant food, earbuds, dark-mode vibes, Maggi, Horlicks, or comfort snacks.',
+  morning:   'It is early morning in India (6-11 AM). The user may want fresh groceries, milk, tea, bread, fruits, morning skincare, or study supplies.',
+  afternoon: 'It is afternoon in India (11 AM-4 PM). The user may want snacks, beverages, tech accessories, stationery, or fashion.',
+  evening:   'It is evening in India (4-8 PM). The user may want ethnic wear, beauty products, trending fashion, footwear, or home decor.',
+  night:     'It is night in India (8-11 PM). The user may want cozy hoodies, gaming gear, Korean skincare, late-night snacks, or beverages.',
+  latenight: 'It is late night in India (11 PM-5 AM). The user may want instant food, earbuds, Maggi, Horlicks, or comfort snacks.',
 };
 
-/**
- * Get AI-personalised product search keywords for the current time of day.
- * Returns up to 5 category-aware search keywords EasyBuy can use to filter products.
- */
 export async function getTimeAwareKeywords(stateName?: string): Promise<string[]> {
   const slot = getCurrentTimeSlot();
   const locationHint = stateName ? ` The user is located in ${stateName}, India.` : ' The user is in India.';
-
-  const reply = await callGroq(
-    [
-      {
-        role: 'system',
-        content:
-          'You are an AI shopping personalisation engine for EasyBuy, an Indian e-commerce app. ' +
-          'Reply ONLY with a valid JSON array of exactly 5 short product search keywords (strings). ' +
-          'No markdown, no explanation.',
-      },
-      {
-        role: 'user',
-        content:
-          TIME_SLOT_CONTEXT[slot] +
-          locationHint +
-          ' Suggest 5 short product search terms (1–3 words each) that are most relevant for a shopping homepage right now. ' +
-          'Example output: ["fresh milk","whole wheat bread","morning serum","green tea","study lamp"]',
-      },
-    ],
-    120
-  );
-
   try {
+    const reply = await callGroq(
+      [
+        { role: 'system', content: 'You are an AI shopping personalisation engine for EasyBuy, an Indian e-commerce app. Reply ONLY with a valid JSON array of exactly 5 short product search keywords (strings). No markdown, no explanation.' },
+        { role: 'user', content: TIME_SLOT_CONTEXT[slot] + locationHint + ' Suggest 5 short product search terms (1-3 words each) that are most relevant for a shopping homepage right now. Example output: ["fresh milk","whole wheat bread","morning serum","green tea","study lamp"]' },
+      ],
+      120
+    );
     const keywords: string[] = JSON.parse(reply);
     if (Array.isArray(keywords) && keywords.every((k) => typeof k === 'string')) {
       return keywords.slice(0, 5);
     }
   } catch {}
 
-  // Deterministic fallback by time slot
   const FALLBACKS: Record<TimeSlot, string[]> = {
     morning:   ['fresh milk', 'bread', 'green tea', 'fruit bowl', 'face wash'],
     afternoon: ['cold drink', 'snacks', 'earbuds', 'cargo pants', 'study lamp'],
-    evening:   ['ethnic saree', 'lipstick', 'hoodies', 'sneakers', 'perfume'],
+    evening:   ['ethnic wear', 'lipstick', 'hoodies', 'sneakers', 'perfume'],
     night:     ['Maggi instant', 'Korean serum', 'gaming headset', 'hoodies', 'makhana'],
     latenight: ['instant noodles', 'Horlicks', 'earbuds', 'dark chocolate', 'cozy socks'],
   };
   return FALLBACKS[slot];
 }
 
-// ─── 2. VOICEBUY CART PARSER ────────────────────────────────────────────────
+// ─── 4. VOICE SEARCH PARSER ──────────────────────────────────────────────────
 
 export interface ParsedCartItem {
   name: string;
@@ -133,43 +270,20 @@ export interface ParsedCartItem {
   category: string;
 }
 
-/**
- * Parse a spoken shopping request (English/Hindi/Hinglish) into structured cart items.
- * Example input: "2 liter milk, ek packet sattu aur makhana add kar do"
- */
 export async function parseVoiceToCart(spokenText: string): Promise<ParsedCartItem[]> {
-  const reply = await callGroq(
-    [
-      {
-        role: 'system',
-        content:
-          'You are a shopping cart parser for an Indian e-commerce app called EasyBuy. ' +
-          'The user speaks in English, Hindi, or Hinglish. ' +
-          'Extract product names, quantities, and categories from their spoken request. ' +
-          'Reply ONLY with a valid JSON array of objects with keys: name (string), quantity (number), category (string). ' +
-          'Use these categories: grocery, beauty, fashion, tech, ethnic_wear, kids. ' +
-          'No markdown, no explanation.',
-      },
-      {
-        role: 'user',
-        content:
-          `The user said: "${spokenText}"\n` +
-          'Parse this into cart items. Example output: ' +
-          '[{"name":"Milk","quantity":2,"category":"grocery"},{"name":"Sattu","quantity":1,"category":"grocery"}]',
-      },
-    ],
-    256
-  );
-
   try {
+    const reply = await callGroq(
+      [
+        { role: 'system', content: 'You are a shopping cart parser for an Indian e-commerce app called EasyBuy. Extract product names, quantities, and categories from spoken requests in English, Hindi, or Hinglish. Reply ONLY with a valid JSON array: [{ "name": string, "quantity": number, "category": string }]. No markdown.' },
+        { role: 'user', content: `User said: "${spokenText}". Parse into cart items.` },
+      ],
+      256
+    );
     const items: ParsedCartItem[] = JSON.parse(reply);
     if (Array.isArray(items)) return items;
   } catch {}
-
   return [];
 }
-
-// ─── 3. AI SHOPPING SUGGESTION & VOICE SEARCH PARSER ───────────────────────
 
 export interface ParsedVoiceSearch {
   cleanQuery: string;
@@ -178,44 +292,24 @@ export interface ParsedVoiceSearch {
   isQuickBuy?: boolean;
 }
 
-/**
- * Parses natural language voice search queries into clean search keywords and filters.
- * e.g. "Mujhe running shoes dikhao 2000 ke andar" -> { cleanQuery: "running shoes", maxPrice: 2000 }
- */
 export async function parseVoiceSearchQuery(spokenText: string): Promise<ParsedVoiceSearch> {
   try {
     const reply = await callGroq(
       [
-        {
-          role: 'system',
-          content:
-            'You are an Indian e-commerce search query cleaner for EasyBuy. ' +
-            'Convert natural language/voice input into clean search keywords and extract filters if present. ' +
-            'Reply ONLY with valid JSON: { "cleanQuery": string, "category"?: string, "maxPrice"?: number, "isQuickBuy"?: boolean } ' +
-            'No markdown, no explanation.',
-        },
-        {
-          role: 'user',
-          content: `User voice search: "${spokenText}"`,
-        },
+        { role: 'system', content: 'You are an Indian e-commerce search query cleaner for EasyBuy. Convert natural language/voice input into clean search keywords. Reply ONLY with valid JSON: { "cleanQuery": string, "category"?: string, "maxPrice"?: number, "isQuickBuy"?: boolean }. No markdown.' },
+        { role: 'user', content: `User voice search: "${spokenText}"` },
       ],
       150
     );
-
     const parsed = JSON.parse(reply);
-    if (parsed && parsed.cleanQuery) {
-      return parsed;
-    }
+    if (parsed && parsed.cleanQuery) return parsed;
   } catch {}
-
-  // Basic fallback
-  const clean = spokenText
-    .replace(/(mujhe|dikhao|chahiye|search|show me|find|buy|want|under|below|ke andar)/gi, '')
-    .trim();
+  const clean = spokenText.replace(/(mujhe|dikhao|chahiye|search|show me|find|buy|want|under|below|ke andar)/gi, '').trim();
   return { cleanQuery: clean || spokenText };
 }
 
-// ─── 4. UNIVERSAL CHATGPT-STYLE SHOPPING & RECIPE CONCIERGE ─────────────────
+// ─── 5. CATALOG-GROUNDED UNIVERSAL AI SHOPPING ───────────────────────────────
+// This is the CORE AI engine — it ONLY shows products that ACTUALLY exist in the catalog.
 
 export interface UniversalAIItem {
   id: string;
@@ -229,7 +323,7 @@ export interface UniversalAIItem {
 
 export interface UniversalAIShoppingResult {
   isAIResult: boolean;
-  type: 'gift' | 'recipe' | 'outfit' | 'fitness' | 'study' | 'grocery' | 'beauty' | 'general';
+  type: 'gift' | 'recipe' | 'outfit' | 'fitness' | 'study' | 'grocery' | 'beauty' | 'general' | 'unavailable';
   title: string;
   emoji: string;
   chatReply: string;
@@ -240,211 +334,233 @@ export interface UniversalAIShoppingResult {
   totalPrice: number;
 }
 
+// Detect if user is asking for a very specific unavailable brand/product
+function detectUnavailableBrand(userInput: string): string | null {
+  const q = userInput.toLowerCase();
+  // Specific brand bats not in catalog
+  if ((q.includes('kookaburra') || q.includes('kokabura') || q.includes('ss ton') || q.includes('gray nicolls') || q.includes('sg bat') || q.includes('mrf bat')) && q.includes('bat')) {
+    return `${userInput.trim()} (premium cricket brand)`;
+  }
+  // Specific luxury items not in catalog
+  if (q.includes('rolex') || q.includes('louis vuitton') || q.includes('gucci') || q.includes('prada')) {
+    return userInput.trim();
+  }
+  return null;
+}
+
+// Map a user query to a category ID for catalog search
+function inferCategoryFromQuery(q: string): string | undefined {
+  const ql = q.toLowerCase();
+  if (ql.match(/bat|cricket|football|badminton|tennis|yoga|dumbbell|fitness equipment/)) return 'sports';
+  if (ql.match(/phone|laptop|earbud|headphone|keyboard|smartwatch|charger|cable/)) return 'electronics';
+  if (ql.match(/hoodie|jeans|tshirt|tee|shirt|dress|kurta|saree|cargo|outfit/)) return 'fashion';
+  if (ql.match(/serum|face|beauty|lipstick|moisturizer|sunscreen|skincare/)) return 'beauty';
+  if (ql.match(/protein|whey|gym|creatine|supplement/)) return 'fitness';
+  if (ql.match(/milk|bread|egg|grocery|snack|sattu|makhana|atta|dal|rice|oil/)) return 'grocery';
+  if (ql.match(/gift|hamper|birthday gift|celebration/)) return 'gifts';
+  if (ql.match(/study|notebook|pen|stationery|office/)) return 'study_office';
+  if (ql.match(/kettle|lamp|hostel|bedsheet|pillow/)) return 'hostel_essentials';
+  if (ql.match(/game|gaming|controller|gamepad/)) return 'gaming';
+  if (ql.match(/shoe|sneaker|sandal|chappal|boot/)) return 'footwear';
+  if (ql.match(/watch|bag|sunglass|belt|wallet/)) return 'accessories';
+  if (ql.match(/baby|diaper|toy|rattle/)) return 'baby_care';
+  if (ql.match(/health|medicine|thermometer|bp monitor|oximeter/)) return 'health_care';
+  if (ql.match(/pet|dog|cat|animal food/)) return 'pet_care';
+  if (ql.match(/car|bike|tyre|helmet|automobile/)) return 'automobile';
+  if (ql.match(/kitchen|cooker|mixer|grinder|tawa|kadhai/)) return 'kitchen';
+  return undefined;
+}
+
 /**
- * Universal ChatGPT-style AI Shopping Assistant.
- * Handles ANY user prompt (gifts, birthday, outfits, recipes, late night study, gym, skincare, groceries)
- * in natural Hindi, English, and Hinglish!
+ * MAIN AI SHOPPING FUNCTION — Catalog-Grounded.
  */
 export async function processUniversalAIShopping(
   userInput: string,
   stateName?: string
 ): Promise<UniversalAIShoppingResult> {
-  const locationHint = stateName ? ` The user is located in ${stateName}, India.` : ' The user is in India.';
+  const q = userInput.toLowerCase().trim();
+
+  // ── Step 1: Check for specific unavailable brand ──
+  const unavailableBrand = detectUnavailableBrand(userInput);
+
+  // ── Step 2: Search actual catalog ──
+  const categoryHint = inferCategoryFromQuery(q);
+  const catalogResults = searchCatalog(userInput, stateName, categoryHint, 5);
+
+  // ── Step 3: Build prompt with catalog context ──
+  const locationHint = stateName
+    ? `The user is in ${stateName}, India. Prioritize products and cultural context relevant to ${stateName}.`
+    : 'The user is in India.';
+
+  // Prepare catalog snapshot for AI context (real products)
+  const catalogContext = catalogResults.length > 0
+    ? 'REAL PRODUCTS FOUND IN EASYBUY CATALOG:\n' +
+      catalogResults.map((p, i) =>
+        `${i + 1}. "${p.name}" | Category: ${p.categoryName} | Price: ₹${p.priceNumber} | ID: ${p.id}`
+      ).join('\n')
+    : 'NO MATCHING PRODUCTS FOUND IN THE CATALOG.';
+
+  const systemPrompt =
+    'You are EasyBuy AI Concierge — a catalog-grounded assistant for EasyBuy, an Indian quick-commerce app.\n' +
+    EASYBUY_APP_KNOWLEDGE + '\n\n' +
+    'STRICT RULES:\n' +
+    '1. You MUST ONLY recommend products that exist in the EasyBuy catalog provided below. NEVER invent products, brands, or prices.\n' +
+    '2. If the user asks for a SPECIFIC BRAND or item that is NOT in the catalog (like Kookaburra bat, Rolex watch, Louis Vuitton), you MUST say it is not available and suggest what IS available.\n' +
+    '3. If catalog has 0 results for the query, say the product is not available and offer related categories.\n' +
+    '4. Be state-aware: if user is in Bihar, mention Sattu, Makhana, Litchi context; if Haryana, mention dairy/fitness; if Punjab, mention gym nutrition etc.\n' +
+    '5. Never repeat the same response. Vary your tone and wording each time.\n' +
+    '6. Reply ONLY in this valid JSON format — no markdown, no backticks:\n' +
+    '{\n' +
+    '  "isAIResult": true,\n' +
+    '  "type": "gift"|"recipe"|"outfit"|"fitness"|"study"|"grocery"|"beauty"|"general"|"unavailable",\n' +
+    '  "title": "Short engaging title with emoji",\n' +
+    '  "emoji": "single emoji",\n' +
+    '  "chatReply": "2-3 sentence warm conversational response. If unavailable, explain why and suggest alternatives.",\n' +
+    '  "tagline": "Short subtitle",\n' +
+    '  "metaBadge": "e.g. 3 Items Found",\n' +
+    '  "steps": ["optional recipe steps only if cooking request"],\n' +
+    '  "items": [ { "id": "use real product ID from catalog", "name": "EXACT product name from catalog", "price": REAL price number, "quantity": "1 pc", "category": "category", "reason": "why recommended" } ],\n' +
+    '  "totalPrice": sum of all item prices\n' +
+    '}';
+
+  const userPrompt =
+    `User request: "${userInput}"\n` +
+    locationHint + '\n\n' +
+    (unavailableBrand ? `NOTE: The user specifically asked for "${unavailableBrand}" which is NOT available in EasyBuy catalog. Do NOT show this brand.\n\n` : '') +
+    catalogContext;
 
   try {
     const reply = await callGroq(
       [
-        {
-          role: 'system',
-          content:
-            'You are the intelligent AI Shopping Concierge for EasyBuy (an Indian Quick Commerce & E-commerce app).\n' +
-            'The user can ask ANYTHING in Hindi, English, or Hinglish (e.g. birthday gifts, recipes, gym diets, college outfits, late night cravings, skincare, groceries).\n' +
-            'Always be helpful, warm, and conversational. Give a short 1-2 sentence friendly advice in Hinglish/English, and assemble 3 to 5 realistic matching products from an Indian shopping catalog.\n' +
-            'Reply ONLY in valid JSON with this exact structure:\n' +
-            '{\n' +
-            '  "isAIResult": true,\n' +
-            '  "type": "gift" | "recipe" | "outfit" | "fitness" | "study" | "grocery" | "beauty" | "general",\n' +
-            '  "title": "Title with emoji (e.g. 🎁 Birthday Celebration Gift Kit / 🫖 Chai & Pakora Kit)",\n' +
-            '  "emoji": "🎁",\n' +
-            '  "chatReply": "Warm friendly 1-2 sentence advice explaining the suggestion in conversational Hinglish/English.",\n' +
-            '  "tagline": "Short sub-headline for the recommendation",\n' +
-            '  "metaBadge": "Quick badge like 4 Items • Ready to Order",\n' +
-            '  "steps": ["Step 1", "Step 2"] (optional if recipe or styling guide),\n' +
-            '  "items": [\n' +
-            '    { "id": "ai_1", "name": "Product Name (e.g. Cadbury Celebrations Rich Dry Fruit Box 450g)", "quantity": "1 box", "price": 450, "category": "gift", "reason": "Premium gift pack" }\n' +
-            '  ]\n' +
-            '}\n' +
-            'No markdown, no backticks, ONLY pure valid JSON.',
-        },
-        {
-          role: 'user',
-          content: `User query: "${userInput}".${locationHint}`,
-        },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
       ],
-      500
+      700
     );
 
     const parsed = JSON.parse(reply);
-    if (parsed && parsed.title && Array.isArray(parsed.items) && parsed.items.length > 0) {
-      const totalPrice = parsed.items.reduce((sum: number, it: any) => sum + (Number(it.price) || 149), 0);
+    if (parsed && parsed.title) {
+      // ── CRITICAL: Replace AI-hallucinated items with real catalog products ──
+      if (Array.isArray(parsed.items) && catalogResults.length > 0) {
+        parsed.items = parsed.items.map((aiItem: any) => {
+          // Try to match AI's suggested product name with a real catalog product
+          const matchedReal = catalogResults.find((r) =>
+            r.id === aiItem.id ||
+            (r.name || r.title).toLowerCase().includes((aiItem.name || '').toLowerCase().slice(0, 12))
+          );
+          if (matchedReal) {
+            return {
+              id: matchedReal.id,
+              name: matchedReal.name || matchedReal.title,
+              price: matchedReal.priceNumber || matchedReal.price,
+              quantity: aiItem.quantity || '1 pc',
+              category: matchedReal.categoryId,
+              reason: aiItem.reason,
+              image: matchedReal.thumbnail || matchedReal.image,
+            };
+          }
+          // If AI item doesn't match anything real, use a real catalog product instead
+          const fallbackReal = catalogResults[0];
+          return {
+            id: fallbackReal.id,
+            name: fallbackReal.name || fallbackReal.title,
+            price: fallbackReal.priceNumber || Number(fallbackReal.price) || 199,
+            quantity: aiItem.quantity || '1 pc',
+            category: fallbackReal.categoryId,
+            reason: aiItem.reason || 'Available on EasyBuy',
+            image: fallbackReal.thumbnail || fallbackReal.image,
+          };
+        });
+      } else if (parsed.type === 'unavailable' || catalogResults.length === 0) {
+        // No catalog match — honest "not available" response
+        parsed.items = [];
+        parsed.type = 'unavailable';
+      }
+
+      const totalPrice = (parsed.items || []).reduce((s: number, it: any) => s + (Number(it.price) || 0), 0);
       return {
         ...parsed,
         isAIResult: true,
+        items: parsed.items || [],
         totalPrice,
       };
     }
   } catch (e) {
-    console.log('[GroqAI] Universal AI processing fallback:', e);
+    console.log('[GroqAI] Universal AI processing error:', e);
   }
 
-  // ─── INSTANT SMART FALLBACKS FOR ANY THEME ───
-  const q = userInput.toLowerCase();
-
-  // 1. Birthday & Gifts
-  if (q.includes('gift') || q.includes('birthday') || q.includes('party') || q.includes('anniversary') || q.includes('shadi') || q.includes('wedding')) {
-    return {
-      isAIResult: true,
-      type: 'gift',
-      title: '🎁 Birthday & Celebration Gift Kit',
-      emoji: '🎁',
-      chatReply: 'Birthday party ke liye ye top trending gift items best rahenge! Premium dry fruit gift box, wireless earbuds, aur skincare sets hamesha sabko pasand aate hain.',
-      tagline: 'Curated for Birthdays, Celebrations & Special Moments',
-      metaBadge: '4 Curated Gifts • Ready in 1-Tap',
-      items: [
-        { id: 'g_1', name: 'Cadbury Celebrations Rich Dry Fruit Gift Hamper (450g)', quantity: '1 box', price: 450, category: 'gift', reason: 'Classic celebration treat', image: 'https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=400' },
-        { id: 'g_2', name: 'boAt Airdopes ANC Wireless Earbuds (Gift Edition)', quantity: '1 pc', price: 1299, category: 'tech', reason: 'Top-rated gadget gift', image: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=400' },
-        { id: 'g_3', name: 'Minimalist Glow Vitamin C Skincare Serum Gift Kit', quantity: '1 set', price: 599, category: 'beauty', reason: 'Aesthetic luxury self-care', image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=400' },
-        { id: 'g_4', name: 'Royal Jaipuri Keepsake Wooden & Brass Box', quantity: '1 pc', price: 499, category: 'gift', reason: 'Handcrafted keepsake memory', image: 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=400' },
-      ],
-      totalPrice: 2847,
-    };
+  // ── Fallback: catalog-only response without AI ──
+  if (catalogResults.length > 0) {
+    return buildCatalogFallback(userInput, catalogResults, stateName);
   }
 
-  // 2. Gym & Fitness / High Protein
-  if (q.includes('gym') || q.includes('protein') || q.includes('workout') || q.includes('diet') || q.includes('fitness')) {
-    return {
-      isAIResult: true,
-      type: 'fitness',
-      title: '💪 High-Protein Gym & Workout Kit',
-      emoji: '💪',
-      chatReply: 'Aapke workout aur muscle recovery ke liye high protein diet essentials ready hain! Whey protein, peanut butter aur roasted makhana perfect combo hai.',
-      tagline: 'Fuel your workout with clean protein & nutrition',
-      metaBadge: '4 Fitness Essentials • High Protein',
-      items: [
-        { id: 'fit_1', name: 'MuscleBlaze Raw Whey Protein 80% (1kg)', quantity: '1 kg', price: 1799, category: 'grocery', reason: '24g pure whey per scoop', image: 'https://images.unsplash.com/photo-1579722821273-0f6c7d44362f?w=400' },
-        { id: 'fit_2', name: 'Pintola All-Natural Creamy Peanut Butter (1kg)', quantity: '1 jar', price: 399, category: 'grocery', reason: 'Zero sugar, 30g protein', image: 'https://images.unsplash.com/photo-1588710929895-15a09b43aa13?w=400' },
-        { id: 'fit_3', name: 'Darbhanga Crispy Roasted Makhana (200g)', quantity: '1 pack', price: 199, category: 'grocery', reason: 'Crunchy low calorie clean snack', image: 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=400' },
-        { id: 'fit_4', name: 'Quaker Whole Grain Rolled Oats (1kg)', quantity: '1 pack', price: 185, category: 'grocery', reason: 'Complex carbs for endurance', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400' },
-      ],
-      totalPrice: 2582,
-    };
-  }
+  // ── No products at all: honest unavailable response ──
+  return buildUnavailableResponse(userInput, stateName, unavailableBrand);
+}
 
-  // 3. College / Party / Fashion Outfit
-  if (q.includes('outfit') || q.includes('pehnu') || q.includes('college') || q.includes('fest') || q.includes('fashion') || q.includes('look')) {
-    return {
-      isAIResult: true,
-      type: 'outfit',
-      title: '👕 Casual Streetwear College Fest Look',
-      emoji: '👕',
-      chatReply: 'College fest ya casual outing ke liye clean minimal streetwear look sabse best lagega! Heavyweight hoodie aur retro sneakers ka combo trendy hai.',
-      tagline: 'Effortless street style curated for college & hangouts',
-      metaBadge: '3 Style Essentials • Modern Fit',
-      items: [
-        { id: 'fsh_1', name: 'Heavyweight Vintage Fleece Oversized Hoodie', quantity: '1 pc', price: 1299, category: 'fashion', reason: 'Relaxed urban comfort', image: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=400' },
-        { id: 'fsh_2', name: 'Retro Washed Oversized Baggy Denim Pants', quantity: '1 pc', price: 1499, category: 'fashion', reason: 'Trending 90s baggy fit', image: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=400' },
-        { id: 'fsh_3', name: 'Chunky Retro Streetwear White Sneakers', quantity: '1 pair', price: 1899, category: 'fashion', reason: 'Classic all-day sneaker', image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400' },
-      ],
-      totalPrice: 4697,
-    };
-  }
-
-  // 4. Late Night / Study / Exam
-  if (q.includes('study') || q.includes('exam') || q.includes('padhai') || q.includes('late night') || q.includes('neend')) {
-    return {
-      isAIResult: true,
-      type: 'study',
-      title: '📚 Late Night Exam Study Fuel Kit',
-      emoji: '📚',
-      chatReply: 'Late night study session ke liye alertness aur energy maintain rakhne ke essentials! Dark chocolate, cold coffee aur green tea aapko focused rakhenge.',
-      tagline: 'Stay sharp, focused and energized through the night',
-      metaBadge: '4 Study Essentials • High Focus',
-      items: [
-        { id: 'std_1', name: '85% Artisanal Dark Belgian Chocolate Bar', quantity: '1 bar', price: 199, category: 'grocery', reason: 'Brain power & antioxidants', image: 'https://images.unsplash.com/photo-1548907040-4baa42d10919?w=400' },
-        { id: 'std_2', name: 'Nescafe Classic Instant Dark Roast Coffee (100g)', quantity: '1 jar', price: 299, category: 'grocery', reason: 'Instant caffeine boost', image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=400' },
-        { id: 'std_3', name: 'Organic Green Tea Bags (Pack of 25)', quantity: '1 box', price: 175, category: 'grocery', reason: 'Calm sustained energy', image: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=400' },
-        { id: 'std_4', name: 'Maggi 2-Minute Masala Instant Noodles (Pack of 4)', quantity: '1 pack', price: 56, category: 'grocery', reason: '2 AM quick study hunger fix', image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=400' },
-      ],
-      totalPrice: 729,
-    };
-  }
-
-  // 5. Chai & Pakora
-  if (q.includes('chai') || q.includes('tea') || q.includes('pakora') || q.includes('pakoda')) {
-    return {
-      isAIResult: true,
-      type: 'recipe',
-      title: '🫖 Chai & Crispy Onion Pakoras Kit',
-      emoji: '🫖',
-      chatReply: 'Monsoon special evening snacks! Kadak masala chai aur crispy besan pyaaz pakode ka poora ready-to-cook kit yahan hai.',
-      tagline: 'Evening comfort snacks kit with ginger chai & hot pakoras',
-      metaBadge: 'Serves 4 • 15 Mins Quick Cook',
-      steps: [
-        '1. Thinly slice onions and mix with besan, green chillies & spices.',
-        '2. Deep fry spoonfuls in hot mustard oil until golden brown.',
-        '3. Brew aromatic ginger chai with fresh milk and serve piping hot!'
-      ],
-      items: [
-        { id: 'chai_1', name: 'Tata Tea Premium Chai Patti (250g)', quantity: '1 pack', price: 95, category: 'grocery', image: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=400' },
-        { id: 'chai_2', name: 'Fresh Full Cream Milk (500ml)', quantity: '1 pouch', price: 34, category: 'grocery', image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400' },
-        { id: 'chai_3', name: 'Fortune Pure Chana Besan (500g)', quantity: '1 pack', price: 58, category: 'grocery', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400' },
-        { id: 'chai_4', name: 'Fresh Red Onions (1kg)', quantity: '1 kg', price: 38, category: 'grocery', image: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=400' },
-        { id: 'chai_5', name: 'Fortune Mustard Oil Kachi Ghani (500ml)', quantity: '1 bottle', price: 85, category: 'grocery', image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=400' },
-      ],
-      totalPrice: 310,
-    };
-  }
-
-  // 6. Maggi / Noodles
-  if (q.includes('maggi') || q.includes('maggie') || q.includes('noodle')) {
-    return {
-      isAIResult: true,
-      type: 'recipe',
-      title: '🍜 2-Minute Cheesy Maggi Feast Kit',
-      emoji: '🍜',
-      chatReply: 'Instant 2-minute cheesy Maggi craving! Butter, cheese slice aur mixed veggies ke sath banayein cafe style Maggi.',
-      tagline: 'Midnight craving instant noodles with butter & cheese',
-      metaBadge: 'Serves 2 • 5 Mins',
-      steps: [
-        '1. Boil 1.5 cups of water in a pan.',
-        '2. Add Maggi tastemaker, butter and break in the noodle cake.',
-        '3. Cook for 2 mins, top with cheese slices and serve hot!'
-      ],
-      items: [
-        { id: 'mg_1', name: 'Maggi 2-Minute Masala Noodles (Pack of 4)', quantity: '1 pack', price: 56, category: 'grocery', image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=400' },
-        { id: 'mg_2', name: 'Amul Butter (100g)', quantity: '1 pack', price: 56, category: 'grocery', image: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=400' },
-        { id: 'mg_3', name: 'Amul Processed Cheese Slices (100g)', quantity: '1 pack', price: 78, category: 'grocery', image: 'https://images.unsplash.com/photo-1552767059-ce182ead6c1b?w=400' },
-      ],
-      totalPrice: 190,
-    };
-  }
-
-  // Default Universal Friendly Response
+function buildCatalogFallback(
+  userInput: string,
+  products: ProductItem[],
+  stateName?: string
+): UniversalAIShoppingResult {
+  const first = products[0];
+  const emoji = inferEmoji(first?.categoryId || 'general');
   return {
     isAIResult: true,
     type: 'general',
-    title: `✨ EasyBuy AI Recommendations for "${userInput.slice(0, 25)}"`,
-    emoji: '✨',
-    chatReply: `Aapke request ke mutabiq EasyBuy se ye top items sabse best aur high-rated hain. Aap inhein 1-tap mein direct cart mein add kar sakte hain!`,
-    tagline: 'Handpicked products matching your conversation',
-    metaBadge: 'Instant 10-Min Delivery',
-    items: [
-      { id: 'gen_1', name: 'Fresh Full Cream Milk (500ml)', quantity: '1 pouch', price: 34, category: 'grocery', reason: 'Fresh daily essential', image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400' },
-      { id: 'gen_2', name: 'Darbhanga Crispy Roasted Makhana (200g)', quantity: '1 pack', price: 199, category: 'grocery', reason: 'Healthy roasted snack', image: 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=400' },
-      { id: 'gen_3', name: 'boAt Airdopes ANC Wireless Earbuds', quantity: '1 pc', price: 1299, category: 'tech', reason: 'Top-rated wireless earbuds', image: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=400' },
-    ],
-    totalPrice: 1532,
+    title: `${emoji} Best Matches for "${userInput.slice(0, 20)}"`,
+    emoji,
+    chatReply: `Aapke liye EasyBuy par ye products available hain${stateName ? ` in ${stateName}` : ''}. Ye sab genuine aur fast delivery ke saath aate hain!`,
+    tagline: `${products.length} products found in EasyBuy catalog`,
+    metaBadge: `${products.length} Items Found`,
+    items: products.slice(0, 4).map((p) => ({
+      id: p.id,
+      name: p.name || p.title,
+      price: p.priceNumber || Number(p.price) || 199,
+      quantity: '1 pc',
+      category: p.categoryId,
+      reason: `Available in ${p.categoryName}`,
+      image: p.thumbnail || p.image,
+    })),
+    totalPrice: products.slice(0, 4).reduce((s, p) => s + (p.priceNumber || Number(p.price) || 199), 0),
   };
+}
+
+function buildUnavailableResponse(
+  userInput: string,
+  stateName?: string,
+  brandName?: string | null
+): UniversalAIShoppingResult {
+  const stateContext = stateName ? ` in ${stateName}` : '';
+  const brandMsg = brandName
+    ? `"${brandName}" abhi EasyBuy par available nahi hai. `
+    : `"${userInput}" ke liye koi exact match nahi mila${stateContext}. `;
+
+  return {
+    isAIResult: true,
+    type: 'unavailable',
+    title: '🔍 Product Not Available',
+    emoji: '🔍',
+    chatReply:
+      brandMsg +
+      'EasyBuy par sports equipment, electronics, fashion, grocery, fitness aur bahut kuch available hai. ' +
+      'Aap Sports & Outdoors ya related category explore kar sakte hain!',
+    tagline: 'This item is not currently in our catalog',
+    metaBadge: 'Not Available',
+    items: [],
+    totalPrice: 0,
+  };
+}
+
+function inferEmoji(categoryId: string): string {
+  const map: Record<string, string> = {
+    sports: '🏏', electronics: '📱', fashion: '👕', beauty: '✨',
+    grocery: '🛒', fitness: '💪', gifts: '🎁', study_office: '📚',
+    hostel_essentials: '🏠', gaming: '🎮', footwear: '👟',
+    accessories: '⌚', kitchen: '🍳', lifestyle: '🌟', quickbuy: '⚡',
+    health_care: '💊', baby_care: '👶', pet_care: '🐾', automobile: '🚗',
+  };
+  return map[categoryId] || '🛍️';
 }
 
 export interface RecipeIngredient {
@@ -468,8 +584,11 @@ export interface RecipeOccasionBundle {
   totalPrice: number;
 }
 
-// Backward compatibility alias
-export const generateRecipeOccasionBundle = async (spokenText: string, stateName?: string): Promise<RecipeOccasionBundle> => {
+// Backward compat alias
+export const generateRecipeOccasionBundle = async (
+  spokenText: string,
+  stateName?: string
+): Promise<RecipeOccasionBundle> => {
   const res = await processUniversalAIShopping(spokenText, stateName);
   return {
     isRecipe: true,
@@ -478,20 +597,21 @@ export const generateRecipeOccasionBundle = async (spokenText: string, stateName
     tagline: res.tagline,
     servings: res.metaBadge || 'Serves 2-4',
     prepTime: '15 Mins',
-    steps: res.steps || ['1. Review ingredients and click Add to Cart to order.'],
-    ingredients: res.items.map((it: UniversalAIItem) => ({
+    steps: res.steps || ['1. Review items and click Add to Cart to order.'],
+    ingredients: res.items.map((it) => ({
       id: it.id,
       name: it.name,
       quantity: it.quantity || '1 pack',
       price: it.price,
       category: it.category,
-      image: it.image
+      image: it.image,
     })),
     totalPrice: res.totalPrice,
   };
 };
 
-// ─── 5. TWO-WAY CONVERSATIONAL CHATGPT SHOPPING ASSISTANT ──────────────────
+// ─── 6. TWO-WAY CONVERSATIONAL AI CHAT ───────────────────────────────────────
+// Catalog-grounded chat: searches catalog BEFORE generating response
 
 export interface AIChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -506,110 +626,141 @@ export interface AIChatResponse {
     emoji: string;
     tagline?: string;
     items: {
-      id: string;
-      name: string;
-      price: number;
-      quantity?: string;
-      category?: string;
-      reason?: string;
-      image?: string;
+      id: string; name: string; price: number;
+      quantity?: string; category?: string; reason?: string; image?: string;
     }[];
     totalPrice: number;
   };
 }
 
-/**
- * Two-way interactive ChatGPT shopping assistant for EasyBuy.
- * Converses naturally, tells jokes, answers questions, and seamlessly attaches product recommendations!
- */
 export async function chatWithEasyBuyAI(
   conversationHistory: AIChatMessage[],
   stateName?: string
 ): Promise<AIChatResponse> {
-  const locationHint = stateName ? ` The user is currently shopping from ${stateName}, India.` : ' The user is shopping in India.';
+  const lastUserMsg = [...conversationHistory].reverse().find((m) => m.role === 'user')?.content || '';
+  const q = lastUserMsg.toLowerCase();
 
-  const systemMessage: AIChatMessage = {
-    role: 'system',
-    content:
-      'You are EasyBuy AI, a warm, witty, and super-intelligent personal shopping assistant (powered by Groq).\n' +
-      'You can chat naturally about anything (greetings, life advice, recipes, party styling, tech gadgets, workouts, or general fun).\n' +
-      locationHint + '\n' +
-      'Speak in a friendly, conversational mix of English and Hinglish (or whichever language the user uses).\n' +
-      'Whenever the user asks for products, gifts, recipes, outfits, groceries, or recommendations, attach 2 to 4 matching products with realistic Indian prices.\n' +
-      'Reply in this valid JSON format:\n' +
-      '{\n' +
-      '  "replyText": "Your direct conversational reply to the user (2-3 sentences max, warm & helpful).",\n' +
-      '  "hasProducts": true,\n' +
-      '  "bundle": {\n' +
-      '    "title": "Title with emoji (e.g. 🎁 Birthday Party Gift Kit)",\n' +
-      '    "emoji": "🎁",\n' +
-      '    "tagline": "Short sub-tagline",\n' +
-      '    "items": [\n' +
-      '      { "id": "p_1", "name": "Product Name", "price": 450, "quantity": "1 pc", "category": "gifts", "reason": "Why it is recommended" }\n' +
-      '    ]\n' +
-      '  }\n' +
-      '}\n' +
-      'If the user is just saying hi/chatting and does not need products yet, set "hasProducts": false and omit "bundle".\n' +
-      'Reply ONLY with pure JSON, no markdown formatting or backticks.',
-  };
+  // Check for unavailable brand first
+  const unavailableBrand = detectUnavailableBrand(lastUserMsg);
+
+  // Search catalog for the user's last message
+  const categoryHint = inferCategoryFromQuery(q);
+  const catalogResults = searchCatalog(lastUserMsg, stateName, categoryHint, 4);
+
+  // Detect if this is a shopping/product request
+  const isShoppingRequest = /want|chahiye|dikhao|buy|order|gift|recipe|outfit|gym|protein|study|snack|grocery|mobile|laptop|shoe|watch|bag|bat|ball|cricket|football|clothes|hoodie|jeans|serum|face wash|recommend/i.test(lastUserMsg);
+
+  const locationHint = stateName
+    ? `User is in ${stateName}, India. Tailor cultural context to ${stateName}.`
+    : 'User is in India.';
+
+  const catalogContext = catalogResults.length > 0
+    ? 'AVAILABLE IN EASYBUY CATALOG:\n' + catalogResults.map((p, i) =>
+        `${i + 1}. "${p.name}" | ₹${p.priceNumber} | ${p.categoryName} | ID: ${p.id}`
+      ).join('\n')
+    : (isShoppingRequest ? 'NO MATCHING PRODUCTS FOUND IN CATALOG.' : '');
+
+  const systemPrompt =
+    'You are EasyBuy AI — a friendly, witty shopping assistant for an Indian quick-commerce app.\n' +
+    EASYBUY_APP_KNOWLEDGE + '\n\n' +
+    'RULES:\n' +
+    '1. You can chat about ANYTHING (jokes, greetings, advice, general knowledge). Be warm and conversational.\n' +
+    '2. For shopping requests, ONLY use products from the catalog provided. NEVER make up products or prices.\n' +
+    '3. If a specific brand/item is not in the catalog, say so honestly and suggest what IS available.\n' +
+    '4. Be state-aware: Bihar = Sattu/Makhana culture; Haryana = dairy/fitness; Goa = beach vibes etc.\n' +
+    '5. Vary your responses — do not repeat the same text.\n' +
+    '6. Reply ONLY with pure JSON (no markdown, no backticks):\n' +
+    'If shopping: { "replyText": "...", "hasProducts": true, "bundle": { "title": "...", "emoji": "...", "tagline": "...", "items": [ { "id": "real catalog ID", "name": "real product name", "price": real number, "quantity": "1 pc", "category": "...", "reason": "..." } ], "totalPrice": number } }\n' +
+    'If just chatting: { "replyText": "...", "hasProducts": false }';
+
+  const userPrompt =
+    locationHint + '\n' +
+    (unavailableBrand ? `NOTE: User asked for "${unavailableBrand}" which is NOT in catalog. Tell them kindly.\n` : '') +
+    (catalogContext ? '\n' + catalogContext + '\n' : '') +
+    '\nUser message: "' + lastUserMsg + '"';
 
   try {
-    const groqMessages = [systemMessage, ...conversationHistory.slice(-6)];
-    const reply = await callGroq(groqMessages, 550);
+    const groqMessages: AIChatMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory.slice(-5),
+    ];
+    // Override the last message with our enriched prompt
+    groqMessages[groqMessages.length - 1] = { role: 'user', content: userPrompt };
 
+    const reply = await callGroq(groqMessages, 600);
     const parsed = JSON.parse(reply);
+
     if (parsed && parsed.replyText) {
-      let totalPrice = 0;
-      if (parsed.bundle && Array.isArray(parsed.bundle.items)) {
-        totalPrice = parsed.bundle.items.reduce((s: number, it: any) => s + (Number(it.price) || 99), 0);
-        parsed.bundle.totalPrice = totalPrice;
+      let bundle = parsed.bundle;
+
+      // Anchor items to real catalog
+      if (bundle && Array.isArray(bundle.items) && catalogResults.length > 0) {
+        bundle.items = bundle.items.map((aiItem: any) => {
+          const real = catalogResults.find((r) =>
+            r.id === aiItem.id ||
+            (r.name || r.title).toLowerCase().includes((aiItem.name || '').toLowerCase().slice(0, 10))
+          ) || catalogResults[Math.floor(Math.random() * catalogResults.length)];
+          return {
+            id: real.id,
+            name: real.name || real.title,
+            price: real.priceNumber || Number(real.price) || 199,
+            quantity: aiItem.quantity || '1 pc',
+            category: real.categoryId,
+            reason: aiItem.reason || `Available in ${real.categoryName}`,
+            image: real.thumbnail || real.image,
+          };
+        });
+        bundle.totalPrice = bundle.items.reduce((s: number, it: any) => s + Number(it.price), 0);
+      } else if (catalogResults.length === 0 && isShoppingRequest) {
+        bundle = undefined;
+        parsed.hasProducts = false;
       }
+
       return {
         replyText: parsed.replyText,
-        hasProducts: Boolean(parsed.hasProducts && parsed.bundle?.items?.length),
-        bundle: parsed.bundle,
+        hasProducts: Boolean(parsed.hasProducts && bundle?.items?.length),
+        bundle,
       };
     }
   } catch (e) {
-    console.log('[GroqAI] Chat assistant error, using fallback:', e);
+    console.log('[GroqAI] Chat assistant error:', e);
   }
 
-  // Fallback conversational response
-  const lastUserMsg = conversationHistory[conversationHistory.length - 1]?.content || '';
-  const fallbackShopping = await processUniversalAIShopping(lastUserMsg, stateName);
+  // Fallback
+  if (catalogResults.length > 0 && isShoppingRequest) {
+    const fallback = buildCatalogFallback(lastUserMsg, catalogResults, stateName);
+    return {
+      replyText: fallback.chatReply,
+      hasProducts: true,
+      bundle: {
+        title: fallback.title,
+        emoji: fallback.emoji,
+        tagline: fallback.tagline,
+        items: fallback.items,
+        totalPrice: fallback.totalPrice,
+      },
+    };
+  }
+
+  if (unavailableBrand) {
+    const res = buildUnavailableResponse(lastUserMsg, stateName, unavailableBrand);
+    return { replyText: res.chatReply, hasProducts: false };
+  }
 
   return {
-    replyText: fallbackShopping.chatReply || 'Hello! Main hoon aapka EasyBuy AI Assistant. Aap mujhse shopping, recipes, gifts, ya outfits ke baare mein kuch bhi pooch sakte hain!',
-    hasProducts: Boolean(fallbackShopping.items && fallbackShopping.items.length > 0),
-    bundle: {
-      title: fallbackShopping.title,
-      emoji: fallbackShopping.emoji,
-      tagline: fallbackShopping.tagline,
-      items: fallbackShopping.items,
-      totalPrice: fallbackShopping.totalPrice,
-    },
+    replyText: 'Namaste! Main hoon aapka EasyBuy AI. Aap mujhse shopping, recipes, gifts, ya kuch bhi pooch sakte hain!',
+    hasProducts: false,
   };
 }
 
-/**
- * Ask EasyBuy AI for product recommendations based on a natural language query.
- */
+// ─── 7. SIMPLE SUGGESTION HELPER ─────────────────────────────────────────────
+
 export async function getAISuggestion(query: string, stateName?: string): Promise<string> {
   const locationHint = stateName ? ` The user is in ${stateName}, India.` : ' The user is in India.';
-
   return callGroq(
     [
-      {
-        role: 'system',
-        content:
-          'You are EasyBuy AI, a friendly Indian shopping assistant. ' +
-          'Help users find the best products from categories: grocery, beauty, fashion, tech, ethnic wear, kids. ' +
-          'Be helpful, concise, and warm. Use Indian context. Max 3 sentences.',
-      },
-      {
-        role: 'user',
-        content: query + locationHint,
-      },
+      { role: 'system', content: 'You are EasyBuy AI, a friendly Indian shopping assistant. Help users find products from categories: grocery, beauty, fashion, electronics, fitness, sports, hostel essentials. Be helpful and concise. Max 3 sentences.' },
+      { role: 'user', content: query + locationHint },
     ],
     200
   );

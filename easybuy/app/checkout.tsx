@@ -46,10 +46,10 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { isDarkMode } = useEasyBuyTheme();
   const isDark = isDarkMode;
-  const { isGuest, isAuthenticated, requireAuth } = useAuth();
+  const { isGuest, isAuthenticated, user, requireAuth } = useAuth();
 
   React.useEffect(() => {
-    if (isGuest || !auth.currentUser) {
+    if (isGuest || !isAuthenticated) {
       requireAuth('proceed with checkout');
       router.replace('/home');
     }
@@ -70,7 +70,7 @@ export default function CheckoutScreen() {
 
   // Physical Address Modal State
   const [addAddressModalVisible, setAddAddressModalVisible] = useState(false);
-  const [receiverNameInput, setReceiverNameInput] = useState(auth.currentUser?.displayName || 'User');
+  const [receiverNameInput, setReceiverNameInput] = useState(user?.fullName || auth.currentUser?.displayName || 'User');
   const [phoneInput, setPhoneInput] = useState('+91 9876543210');
   const [houseNoInput, setHouseNoInput] = useState('');
   const [buildingInput, setBuildingInput] = useState('');
@@ -196,14 +196,14 @@ export default function CheckoutScreen() {
     try {
       const newOrderRef = doc(collection(db, 'orders'));
       const orderId = `#EB-${Math.floor(100000 + Math.random() * 900000)}`;
-      const currentUser = auth.currentUser;
+      const activeUser: any = user || auth.currentUser;
 
       const orderData = {
         id: newOrderRef.id,
         orderId,
-        userEmail: currentUser?.email || 'guest@easybuy.com',
-        userName: currentUser?.displayName || selectedAddress.receiverName || 'Guest Customer',
-        userId: currentUser?.uid || 'guest',
+        userEmail: activeUser?.email || 'guest@easybuy.com',
+        userName: activeUser?.fullName || selectedAddress.receiverName || 'Guest Customer',
+        userId: activeUser?.uid || 'guest',
         date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         createdAt: new Date().toISOString(),
         itemCount: totalItems > 0 ? totalItems : (cartItems.length || 1),
