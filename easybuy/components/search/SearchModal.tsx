@@ -433,7 +433,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     if (!recipeKit) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
-    recipeKit.ingredients.forEach((ing) => {
+    recipeKit.ingredients.forEach((ing: any) => {
       addToCart({
         id: ing.id || `rec_ing_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         title: ing.name,
@@ -821,7 +821,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                       {/* 3 Steps Instructions */}
                       {recipeKit.steps && recipeKit.steps.length > 0 && (
                         <View style={{ backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: 12, padding: 10, marginBottom: 12, gap: 4 }}>
-                          {recipeKit.steps.map((st, i) => (
+                          {recipeKit.steps.map((st: string, i: number) => (
                             <Text key={i} style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.85)', lineHeight: 16 }}>
                               {st}
                             </Text>
@@ -835,7 +835,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                       </Text>
 
                       <View style={{ gap: 6, marginBottom: 12 }}>
-                        {recipeKit.ingredients.map((ing) => (
+                        {recipeKit.ingredients.map((ing: any) => (
                           <View
                             key={ing.id}
                             style={{
