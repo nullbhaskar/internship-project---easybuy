@@ -319,6 +319,29 @@ export async function generateRecipeOccasionBundle(
     };
   }
 
+  if (q.includes('maggi') || q.includes('maggie') || q.includes('noodle')) {
+    return {
+      isRecipe: true,
+      recipeName: '2-Minute Masala Maggi Feast Kit',
+      emoji: '🍜',
+      tagline: 'Midnight craving instant noodles with butter, cheese and peri peri seasoning',
+      servings: 'Serves 1-2',
+      prepTime: '5 Mins',
+      steps: [
+        '1. Boil 1.5 cups of water in a pan.',
+        '2. Add Maggi tastemaker, butter and break in the noodle cake.',
+        '3. Cook for 2 mins, top with cheese slices and serve hot!'
+      ],
+      ingredients: [
+        { id: 'mg_1', name: 'Maggi 2-Minute Masala Noodles (Pack of 4)', quantity: '1 pack', price: 56, category: 'grocery', image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=400' },
+        { id: 'mg_2', name: 'Amul Butter (100g)', quantity: '1 pack', price: 56, category: 'grocery', image: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=400' },
+        { id: 'mg_3', name: 'Amul Processed Cheese Slices (100g)', quantity: '1 pack', price: 78, category: 'grocery', image: 'https://images.unsplash.com/photo-1552767059-ce182ead6c1b?w=400' },
+        { id: 'mg_4', name: 'Fresh Green Peas & Carrots (250g)', quantity: '1 pack', price: 35, category: 'grocery', image: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400' },
+      ],
+      totalPrice: 225,
+    };
+  }
+
   if (q.includes('pav') || q.includes('bhaji')) {
     return {
       isRecipe: true,

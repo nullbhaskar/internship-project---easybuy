@@ -18,16 +18,90 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter, router } from 'expo-router';
 import { useAddress } from '../../context/AddressContext';
-import { ProductTransitionWrapper } from '../transition/ProductTransitionWrapper';
-import { generateFullIndianCatalog } from '../../constants/catalogGenerator';
-import { db } from '../../services/firebase';
-import { collection, getDocs } from 'firebase/firestore';
-
-
+import { useCart } from '../../context/CartContext';
 import { voiceRecognition } from '../../services/voiceRecognition';
-import { parseVoiceSearchQuery } from '../../services/groqAI';
+import { parseVoiceSearchQuery, generateRecipeOccasionBundle, RecipeOccasionBundle } from '../../services/groqAI';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { generateFullIndianCatalog } from '../../constants/catalogGenerator';
+import { ProductTransitionWrapper } from '../transition/ProductTransitionWrapper';
 
 const { width, height } = Dimensions.get('window');
+
+// Multi-lingual Hinglish, Hindi, and English Semantic Thesaurus
+const HINGLISH_SYNONYMS: Record<string, string[]> = {
+  // Food, Groceries & QuickBuy
+  maggie: ['maggi', 'noodle', 'noodles', 'instant noodles', 'ramen', 'snack'],
+  maggi: ['maggie', 'noodle', 'noodles', 'instant noodles', 'ramen', 'snack'],
+  noodle: ['maggi', 'maggie', 'noodles', 'ramen'],
+  noodles: ['maggi', 'maggie', 'noodle', 'ramen'],
+  chai: ['tea', 'chai patti', 'tea leaves', 'green tea', 'milk', 'sugar', 'ginger'],
+  tea: ['chai', 'chai patti', 'tea leaves', 'green tea'],
+  doodh: ['milk', 'dairy', 'paneer', 'butter'],
+  milk: ['doodh', 'dairy'],
+  makhan: ['butter', 'ghee', 'dairy'],
+  butter: ['makhan', 'ghee', 'amul'],
+  ghee: ['desi ghee', 'butter', 'oil'],
+  dahi: ['curd', 'yogurt'],
+  curd: ['dahi', 'yogurt'],
+  anda: ['egg', 'eggs'],
+  ande: ['egg', 'eggs'],
+  egg: ['anda', 'ande', 'eggs'],
+  eggs: ['anda', 'ande', 'egg'],
+  paani: ['water', 'mineral water'],
+  water: ['paani', 'mineral water'],
+  chawal: ['rice', 'basmati'],
+  rice: ['chawal', 'basmati'],
+  chini: ['sugar', 'cheeni'],
+  cheeni: ['sugar', 'chini'],
+  sugar: ['chini', 'cheeni'],
+  namak: ['salt', 'spices'],
+  salt: ['namak', 'spices'],
+  masala: ['spices', 'blend', 'curry'],
+  aloo: ['potato', 'potatoes'],
+  potato: ['aloo', 'potatoes'],
+  pyaaz: ['onion', 'onions'],
+  pyaz: ['onion', 'onions'],
+  onion: ['pyaaz', 'pyaz', 'onions'],
+  tamatar: ['tomato', 'tomatoes'],
+  tomato: ['tamatar', 'tomatoes'],
+  tel: ['oil', 'mustard oil', 'cooking oil'],
+  oil: ['tel', 'mustard oil'],
+  coffee: ['cold coffee', 'filter coffee', 'nescafe'],
+  biscuit: ['biscuits', 'cookies', 'snack'],
+  chips: ['chip', 'wafers', 'crisps', 'snack', 'makhana'],
+  snack: ['snacks', 'chips', 'makhana', 'biscuit', 'noodles'],
+
+  // Regional items
+  sattu: ['chana sattu', 'roasted chana', 'flour', 'bihar'],
+  makhana: ['fox nuts', 'lotus seeds', 'roasted makhana', 'snack'],
+  phulkari: ['dupatta', 'suit', 'punjab'],
+  jutti: ['juti', 'mojari', 'shoes', 'footwear', 'punjab'],
+  saree: ['sari', 'katan', 'silk', 'ethnic', 'banarasi'],
+  sari: ['saree', 'katan', 'silk', 'ethnic', 'banarasi'],
+  kurti: ['kurta', 'top', 'chikankari', 'ethnic'],
+  kurta: ['kurti', 'top', 'sherwani', 'ethnic'],
+
+  // Fashion & Tech
+  hoodie: ['hoodies', 'sweatshirt', 'fleece', 'jacket', 'oversized'],
+  hoodies: ['hoodie', 'sweatshirt', 'fleece', 'jacket'],
+  sweatshirt: ['hoodie', 'hoodies', 'fleece'],
+  shoes: ['shoe', 'sneaker', 'sneakers', 'kicks', 'footwear', 'running shoes', 'jutti', 'mojari'],
+  shoe: ['shoes', 'sneaker', 'sneakers', 'footwear'],
+  sneaker: ['sneakers', 'shoes', 'kicks', 'footwear'],
+  sneakers: ['sneaker', 'shoes', 'kicks', 'footwear'],
+  joote: ['shoes', 'sneakers', 'footwear'],
+  kapde: ['clothes', 'fashion', 'shirt', 'kurti', 'hoodie', 'denim', 'jeans'],
+  watch: ['watches', 'smartwatch', 'smart watch', 'ghadi', 'apple'],
+  watches: ['watch', 'smartwatch', 'smart watch', 'ghadi'],
+  smartwatch: ['watch', 'watches', 'smart watch', 'apple watch', 'ghadi'],
+  ghadi: ['watch', 'smartwatch'],
+  earbuds: ['earphones', 'airpods', 'tws', 'headphones', 'audio', 'boat'],
+  earphones: ['earbuds', 'headphones', 'airpods', 'audio'],
+  headphones: ['earbuds', 'earphones', 'anc', 'audio'],
+  phone: ['smartphone', 'mobile', 'android', '5g'],
+  mobile: ['phone', 'smartphone', '5g'],
+};
 
 interface ProductItem {
   id: string;
@@ -311,7 +385,68 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     });
   };
 
+  const { addToCart } = useCart();
   const { stateProducts, selectedStateName } = useAddress();
+  const [recipeKit, setRecipeKit] = useState<RecipeOccasionBundle | null>(null);
+  const [recipeToast, setRecipeToast] = useState<string | null>(null);
+  const [isRecipeExpanded, setIsRecipeExpanded] = useState(true);
+
+  // Auto-detect recipe & meal requests in Search
+  useEffect(() => {
+    if (!queryText.trim() || queryText.trim().length < 3) {
+      setRecipeKit(null);
+      return;
+    }
+
+    const q = queryText.toLowerCase();
+    const isMealQuery =
+      q.includes('chai') ||
+      q.includes('tea') ||
+      q.includes('maggi') ||
+      q.includes('maggie') ||
+      q.includes('noodle') ||
+      q.includes('pav bhaji') ||
+      q.includes('pakora') ||
+      q.includes('pakoda') ||
+      q.includes('litti') ||
+      q.includes('banana hai') ||
+      q.includes('recipe') ||
+      q.includes('breakfast') ||
+      q.includes('dinner');
+
+    if (isMealQuery) {
+      let isCancelled = false;
+      generateRecipeOccasionBundle(queryText, selectedStateName).then((kit) => {
+        if (!isCancelled && kit && kit.ingredients && kit.ingredients.length > 0) {
+          setRecipeKit(kit);
+        }
+      });
+      return () => {
+        isCancelled = true;
+      };
+    } else {
+      setRecipeKit(null);
+    }
+  }, [queryText, selectedStateName]);
+
+  const handleAddRecipeKitToCart = () => {
+    if (!recipeKit) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+    recipeKit.ingredients.forEach((ing) => {
+      addToCart({
+        id: ing.id || `rec_ing_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        title: ing.name,
+        price: `₹${ing.price || 40}`,
+        image: ing.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+        quantity: 1,
+        unit: ing.quantity,
+      });
+    });
+
+    setRecipeToast(`✨ Added all ${recipeKit.ingredients.length} items from ${recipeKit.recipeName} to Cart!`);
+    setTimeout(() => setRecipeToast(null), 3000);
+  };
 
   // Fetch live products directly from Firestore (same as Admin Panel!)
   const [dbProducts, setDbProducts] = useState<any[]>([]);
@@ -431,7 +566,15 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       }
     });
 
-    return Array.from(expanded);
+    // Expand Hinglish & Multi-lingual synonyms (e.g. maggie -> noodles, chai -> tea, joote -> shoes)
+    const finalSet = new Set<string>(expanded);
+    expanded.forEach((w) => {
+      if (HINGLISH_SYNONYMS[w]) {
+        HINGLISH_SYNONYMS[w].forEach((syn) => finalSet.add(syn));
+      }
+    });
+
+    return Array.from(finalSet);
   };
 
   const filteredProducts = React.useMemo(() => {
@@ -603,6 +746,152 @@ export const SearchModal: React.FC<SearchModalProps> = ({
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled"
             >
+              {/* ── RECIPE TOAST NOTIFICATION ── */}
+              {recipeToast && (
+                <View style={{
+                  backgroundColor: '#10B981',
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  borderRadius: 14,
+                  marginBottom: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#FFFFFF', flex: 1 }}>
+                    {recipeToast}
+                  </Text>
+                </View>
+              )}
+
+              {/* ── ⚡ AI QUICK-COOK RECIPE & MEAL KIT CARD ── */}
+              {recipeKit && (
+                <View style={{
+                  backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                  borderRadius: 20,
+                  padding: 16,
+                  marginBottom: 16,
+                  borderWidth: 1.5,
+                  borderColor: 'rgba(16, 185, 129, 0.35)',
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ fontSize: 26 }}>{recipeKit.emoji}</Text>
+                      <View>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#FFFFFF' }}>
+                          {recipeKit.recipeName}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#10B981', fontWeight: '700' }}>
+                          ⚡ AI Quick Recipe & Grocery Kit
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={{ padding: 4 }}
+                      onPress={() => setIsRecipeExpanded(!isRecipeExpanded)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={isRecipeExpanded ? 'chevron-up-circle' : 'chevron-down-circle'}
+                        size={22}
+                        color="#10B981"
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginBottom: 10, lineHeight: 16 }}>
+                    {recipeKit.tagline}
+                  </Text>
+
+                  {isRecipeExpanded && (
+                    <>
+                      {/* Recipe Meta Badges */}
+                      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(16, 185, 129, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
+                          <Ionicons name="people-outline" size={12} color="#10B981" />
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>{recipeKit.servings}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(16, 185, 129, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
+                          <Ionicons name="time-outline" size={12} color="#10B981" />
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>{recipeKit.prepTime}</Text>
+                        </View>
+                      </View>
+
+                      {/* 3 Steps Instructions */}
+                      {recipeKit.steps && recipeKit.steps.length > 0 && (
+                        <View style={{ backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: 12, padding: 10, marginBottom: 12, gap: 4 }}>
+                          {recipeKit.steps.map((st, i) => (
+                            <Text key={i} style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.85)', lineHeight: 16 }}>
+                              {st}
+                            </Text>
+                          ))}
+                        </View>
+                      )}
+
+                      {/* Ingredients List */}
+                      <Text style={{ fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#8A8FA8', textTransform: 'uppercase', marginBottom: 6 }}>
+                        RECIPE INGREDIENTS ({recipeKit.ingredients.length})
+                      </Text>
+
+                      <View style={{ gap: 6, marginBottom: 12 }}>
+                        {recipeKit.ingredients.map((ing) => (
+                          <View
+                            key={ing.id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              backgroundColor: 'rgba(255,255,255,0.06)',
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 10,
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                              <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                              <Text style={{ fontSize: 13, color: '#FFFFFF', fontWeight: '600' }} numberOfLines={1}>
+                                {ing.name}
+                              </Text>
+                              <Text style={{ fontSize: 11, color: '#8A8FA8' }}>
+                                ({ing.quantity})
+                              </Text>
+                            </View>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#10B981' }}>
+                              ₹{ing.price}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      {/* 1-Tap Add All Button */}
+                      <TouchableOpacity
+                        style={{
+                          backgroundColor: '#10B981',
+                          paddingVertical: 12,
+                          borderRadius: 14,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          shadowColor: '#10B981',
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.4,
+                          shadowRadius: 8,
+                          elevation: 4,
+                        }}
+                        onPress={handleAddRecipeKitToCart}
+                        activeOpacity={0.88}
+                      >
+                        <Ionicons name="flash" size={16} color="#FFFFFF" />
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 }}>
+                          ⚡ ADD ALL {recipeKit.ingredients.length} INGREDIENTS TO CART • ₹{recipeKit.totalPrice}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              )}
 
               {/* ── ACTIVE SEARCH: SUGGESTIONS LIST ── */}
               {queryText.length >= 1 && suggestions.length > 0 && (
