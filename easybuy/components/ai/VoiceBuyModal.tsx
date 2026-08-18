@@ -221,7 +221,7 @@ export const VoiceBuyModal: React.FC<VoiceBuyModalProps> = ({
           <View style={styles.headerRow}>
             <View>
               <Text style={[styles.title, isDarkMode && { color: '#F8FAFC' }]}>
-                EasyBuy ChatGPT Concierge 🎙️✨
+                EasyBuy ChatGPT Concierge 🎙️
               </Text>
               <Text style={[styles.subtitle, isDarkMode && { color: '#94A3B8' }]}>
                 Ask for gifts, recipes, outfits, diets, or groceries in any language!

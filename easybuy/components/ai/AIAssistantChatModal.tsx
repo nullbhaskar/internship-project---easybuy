@@ -62,7 +62,7 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
     {
       id: 'welcome_1',
       sender: 'assistant',
-      text: 'Namaste! Main hoon aapka EasyBuy AI Assistant 🧠✨. Aap mujhse shopping, recipes, gift recommendations, college outfits, ya kisi bhi cheez ke baare mein baat kar sakte hain. Aaj main aapki kya madad karoon?',
+      text: 'Namaste! Main hoon aapka EasyBuy AI Assistant 🧠. Aap mujhse shopping, recipes, gift recommendations, college outfits, ya kisi bhi cheez ke baare mein baat kar sakte hain. Aaj main aapki kya madad karoon?',
       timestamp: 'Just now',
     },
   ]);

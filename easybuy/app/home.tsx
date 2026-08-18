@@ -3982,9 +3982,9 @@ export default function HomeScreen() {
           }}
           activeOpacity={0.88}
         >
-          <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+          <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
           <Text style={{ fontSize: 13, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 }}>
-            Ask AI ✨
+            Ask AI
           </Text>
         </TouchableOpacity>
 
