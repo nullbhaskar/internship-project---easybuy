@@ -43,6 +43,15 @@ export async function callGroq(messages: GroqMessage[], maxTokens = 512): Promis
   }
 }
 
+export function cleanAndParseJSON(raw: string): any {
+  let cleaned = raw.trim();
+  // Remove markdown code blocks if present
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  }
+  return JSON.parse(cleaned);
+}
+
 // ─── 1. APP KNOWLEDGE BASE ───────────────────────────────────────────────────
 // Comprehensive knowledge about EasyBuy app so AI can guide users correctly
 
@@ -246,7 +255,7 @@ export async function getTimeAwareKeywords(stateName?: string): Promise<string[]
       ],
       120
     );
-    const keywords: string[] = JSON.parse(reply);
+    const keywords: string[] = cleanAndParseJSON(reply);
     if (Array.isArray(keywords) && keywords.every((k) => typeof k === 'string')) {
       return keywords.slice(0, 5);
     }
@@ -279,7 +288,7 @@ export async function parseVoiceToCart(spokenText: string): Promise<ParsedCartIt
       ],
       256
     );
-    const items: ParsedCartItem[] = JSON.parse(reply);
+    const items: ParsedCartItem[] = cleanAndParseJSON(reply);
     if (Array.isArray(items)) return items;
   } catch {}
   return [];
@@ -301,7 +310,7 @@ export async function parseVoiceSearchQuery(spokenText: string): Promise<ParsedV
       ],
       150
     );
-    const parsed = JSON.parse(reply);
+    const parsed = cleanAndParseJSON(reply);
     if (parsed && parsed.cleanQuery) return parsed;
   } catch {}
   const clean = spokenText.replace(/(mujhe|dikhao|chahiye|search|show me|find|buy|want|under|below|ke andar)/gi, '').trim();
@@ -435,10 +444,10 @@ export async function processUniversalAIShopping(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      700
+      1200
     );
 
-    const parsed = JSON.parse(reply);
+    const parsed = cleanAndParseJSON(reply);
     if (parsed && parsed.title) {
       // ── CRITICAL: Replace AI-hallucinated items with real catalog products ──
       if (Array.isArray(parsed.items) && catalogResults.length > 0) {
@@ -687,8 +696,8 @@ export async function chatWithEasyBuyAI(
     // Override the last message with our enriched prompt
     groqMessages[groqMessages.length - 1] = { role: 'user', content: userPrompt };
 
-    const reply = await callGroq(groqMessages, 600);
-    const parsed = JSON.parse(reply);
+    const reply = await callGroq(groqMessages, 1200);
+    const parsed = cleanAndParseJSON(reply);
 
     if (parsed && parsed.replyText) {
       let bundle = parsed.bundle;
