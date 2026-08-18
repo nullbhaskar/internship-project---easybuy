@@ -49,7 +49,7 @@ const CartContext = createContext<CartContextType>({
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const { isGuest, isAuthenticated, requireAuth } = useAuth();
+  const { isGuest, isAuthenticated, user, requireAuth } = useAuth();
 
   // Load Cart from AsyncStorage and Firestore on mount / auth change
   useEffect(() => {
@@ -68,9 +68,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const userDocRef = doc(db, 'users', currentUser.uid);
+        const activeUid = user?.uid || auth.currentUser?.uid;
+        if (activeUid) {
+          const userDocRef = doc(db, 'users', activeUid);
           const snap = await getDoc(userDocRef);
           if (snap.exists() && snap.data().cart) {
             setCartItems(snap.data().cart);
@@ -82,16 +82,16 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     loadCartData();
-  }, [isGuest, isAuthenticated]);
+  }, [isGuest, isAuthenticated, user?.uid]);
 
   // Save Cart state helper
   const persistCart = async (items: CartItem[]) => {
-    if (isGuest || !auth.currentUser) return;
+    if (isGuest) return;
     try {
       await AsyncStorage.setItem('easybuy_cart_items', JSON.stringify(items));
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        const userDocRef = doc(db, 'users', currentUser.uid);
+      const activeUid = user?.uid || auth.currentUser?.uid;
+      if (activeUid) {
+        const userDocRef = doc(db, 'users', activeUid);
         await setDoc(userDocRef, { cart: items }, { merge: true });
       }
     } catch (e) {

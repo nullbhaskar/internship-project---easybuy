@@ -48,6 +48,7 @@ import { EditorialStoryModal, EditorialStoryData } from '../components/Editorial
 import { useAddress } from '../context/AddressContext';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
+import { useAuth } from '../context/AuthContext';
 import { useProductTransition } from '../context/ProductTransitionContext';
 import { QuickBuySection } from '../components/QuickBuySection';
 import { SpinWinModal } from '../components/SpinWinModal';
@@ -1666,9 +1667,16 @@ export default function HomeScreen() {
   const { isDarkMode, toggleDarkMode } = useEasyBuyTheme();
   const { openCart, totalItems, addToCart } = useCart();
   const { openWishlist, totalWishlistItems, toggleWishlist, isInWishlist } = useWishlist();
-  const [userName, setUserName] = useState('Bhaskar');
+  const { user } = useAuth();
+  const [userName, setUserName] = useState(user?.fullName || 'Bhaskar');
   const [activeTab, setActiveTab] = useState('home');
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (user?.fullName) {
+      setUserName(user.fullName);
+    }
+  }, [user?.fullName]);
 
   const recommendedCategories = useMemo(() => getDailyHomeCategories(), []);
 

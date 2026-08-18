@@ -39,7 +39,7 @@ const APPLE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 export default function RegisterScreen() {
   const router = useRouter();
   const { t } = useLanguage();
-  const { setGuestMode } = useAuth();
+  const { setGuestMode, setAuthenticatedUser } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -201,12 +201,19 @@ export default function RegisterScreen() {
         }
 
         // 3. Save user profile to Firestore 'users' collection (fullName, email, password, createdAt)
-        await setDoc(doc(db, 'users', uid), {
+        const profilePayload = {
           uid: uid,
           fullName: name.trim(),
           email: cleanEmail,
           password: password,
           createdAt: new Date().toISOString(),
+        };
+        await setDoc(doc(db, 'users', uid), profilePayload);
+
+        await setAuthenticatedUser({
+          uid: uid,
+          email: cleanEmail,
+          fullName: name.trim(),
         });
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});

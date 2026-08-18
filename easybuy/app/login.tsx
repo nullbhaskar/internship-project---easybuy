@@ -43,7 +43,7 @@ const APPLE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 export default function LoginScreen() {
   const router = useRouter();
   const { t } = useLanguage();
-  const { setGuestMode } = useAuth();
+  const { setGuestMode, setAuthenticatedUser } = useAuth();
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -220,9 +220,16 @@ export default function LoginScreen() {
         const isAdminEmail = cleanEmail === 'admineasybuy@gmail.com' && password === 'admin@123';
 
         let isAuthenticated = false;
+        let profileData: any = null;
 
         if (isAdminEmail) {
           isAuthenticated = true;
+          profileData = {
+            uid: 'admin_root',
+            email: cleanEmail,
+            fullName: 'EasyBuy Admin',
+            isAdmin: true,
+          };
           try {
             await signInWithEmailAndPassword(auth, cleanEmail, password);
           } catch (authErr) {
@@ -233,24 +240,47 @@ export default function LoginScreen() {
           const usersRef = collection(db, 'users');
           const q = query(usersRef, where('email', '==', cleanEmail), where('password', '==', password));
           const querySnapshot = await getDocs(q);
-          isAuthenticated = !querySnapshot.empty;
+          
+          if (!querySnapshot.empty) {
+            isAuthenticated = true;
+            const docData = querySnapshot.docs[0].data();
+            profileData = {
+              uid: querySnapshot.docs[0].id || docData.uid || 'user_' + Date.now(),
+              email: cleanEmail,
+              fullName: docData.fullName || 'EasyBuy Customer',
+              phone: docData.phone,
+              gender: docData.gender,
+              dob: docData.dob,
+            };
+          }
 
           // 2. Also authenticate via Firebase Auth if needed
-          if (!isAuthenticated) {
-            try {
-              await signInWithEmailAndPassword(auth, cleanEmail, password);
+          try {
+            const fbCred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+            if (fbCred.user) {
               isAuthenticated = true;
-            } catch (authErr) {
-              // Both failed
+              if (!profileData) {
+                profileData = {
+                  uid: fbCred.user.uid,
+                  email: cleanEmail,
+                  fullName: fbCred.user.displayName || 'EasyBuy Customer',
+                };
+              }
             }
-          } else {
-            try {
-              await signInWithEmailAndPassword(auth, cleanEmail, password);
-            } catch (e) {}
+          } catch (authErr) {
+            // Handled
           }
         }
 
         if (isAuthenticated) {
+          if (!profileData) {
+            profileData = {
+              uid: 'user_' + Date.now(),
+              email: cleanEmail,
+              fullName: 'EasyBuy Customer',
+            };
+          }
+          await setAuthenticatedUser(profileData);
           setIsSubmitting(false);
           setIsAuthSuccess(true);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});

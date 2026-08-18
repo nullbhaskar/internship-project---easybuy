@@ -53,25 +53,25 @@ export default function ProfileScreen() {
   const { openCart, totalItems } = useCart();
   const { openLocationModal } = useAddress();
   const { isDarkMode: darkMode } = useEasyBuyTheme();
-  const { isGuest, isAuthenticated, openAuthModal, exitGuestMode } = useAuth();
+  const { isGuest, isAuthenticated, user, logout, openAuthModal, exitGuestMode } = useAuth();
   const spatialDrawerRef = React.useRef<SpatialDrawerRef>(null);
   const isDark = darkMode;
 
-  const [userName, setUserName] = useState('Bhaskar');
-  const [userEmail, setUserEmail] = useState('bhaskar@example.com');
+  const [userName, setUserName] = useState(user?.fullName || 'Bhaskar');
+  const [userEmail, setUserEmail] = useState(user?.email || 'bhaskar@example.com');
   const [ordersCount, setOrdersCount] = useState(2);
 
   // Additional Profile Fields
-  const [userPhone, setUserPhone] = useState('+91 98765 43210');
-  const [editPhone, setEditPhone] = useState('+91 98765 43210');
-  const [userGender, setUserGender] = useState('Male');
-  const [editGender, setEditGender] = useState('Male');
-  const [userDob, setUserDob] = useState('15/08/2003');
-  const [editDob, setEditDob] = useState('15/08/2003');
+  const [userPhone, setUserPhone] = useState(user?.phone || '+91 98765 43210');
+  const [editPhone, setEditPhone] = useState(user?.phone || '+91 98765 43210');
+  const [userGender, setUserGender] = useState(user?.gender || 'Male');
+  const [editGender, setEditGender] = useState(user?.gender || 'Male');
+  const [userDob, setUserDob] = useState(user?.dob || '15/08/2003');
+  const [editDob, setEditDob] = useState(user?.dob || '15/08/2003');
 
   // Personal Info Edit states
-  const [editName, setEditName] = useState('');
-  const [editEmail, setEditEmail] = useState('');
+  const [editName, setEditName] = useState(user?.fullName || '');
+  const [editEmail, setEditEmail] = useState(user?.email || '');
 
   // Modal visibilities
   const [editProfileVisible, setEditProfileVisible] = useState(false);
@@ -79,22 +79,39 @@ export default function ProfileScreen() {
   const [loyaltyModalVisible, setLoyaltyModalVisible] = useState(false);
   const [privacyVisible, setPrivacyVisible] = useState(false);
 
-  // Fetch user data & order count dynamically
+  // Sync user profile from auth context
+  useEffect(() => {
+    if (user) {
+      if (user.email) {
+        setUserEmail(user.email);
+        setEditEmail(user.email);
+      }
+      if (user.fullName) {
+        setUserName(user.fullName);
+        setEditName(user.fullName);
+      }
+      if (user.phone) {
+        setUserPhone(user.phone);
+        setEditPhone(user.phone);
+      }
+      if (user.gender) {
+        setUserGender(user.gender);
+        setEditGender(user.gender);
+      }
+      if (user.dob) {
+        setUserDob(user.dob);
+        setEditDob(user.dob);
+      }
+    }
+  }, [user]);
+
+  // Fetch user data from Firestore if available
   useEffect(() => {
     async function fetchUserData() {
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        if (currentUser.email) {
-          setUserEmail(currentUser.email);
-          setEditEmail(currentUser.email);
-        }
-        if (currentUser.displayName) {
-          setUserName(currentUser.displayName);
-          setEditName(currentUser.displayName);
-        }
-
+      const activeUid = user?.uid || auth.currentUser?.uid;
+      if (activeUid) {
         try {
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const userDoc = await getDoc(doc(db, 'users', activeUid));
           if (userDoc.exists()) {
             const data = userDoc.data();
             if (data.fullName) {
@@ -120,7 +137,7 @@ export default function ProfileScreen() {
       }
     }
     fetchUserData();
-  }, []);
+  }, [user?.uid]);
 
   // Listen to live orders count
   useEffect(() => {
@@ -177,7 +194,7 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     try {
-      await auth.signOut();
+      await logout();
       router.replace('/login');
     } catch (e) {
       console.log('Logout error:', e);
@@ -189,7 +206,7 @@ export default function ProfileScreen() {
     <SpatialDrawerWrapper
       ref={spatialDrawerRef}
       userName={userName || 'Bhaskar'}
-      userEmail={auth.currentUser?.email || 'bhaskar@example.com'}
+      userEmail={userEmail || 'bhaskar@example.com'}
       userAvatar={auth.currentUser?.photoURL || undefined}
       onSelectMenuItem={(itemId) => {
         if (itemId === 'categories') {
@@ -247,7 +264,7 @@ export default function ProfileScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scrollContent}>
-          {isGuest || !auth.currentUser ? (
+          {(!isAuthenticated || isGuest) ? (
             /* ══════════════════════════════════════════════════
                GUEST USER DEDICATED PROFILE VIEW
                ══════════════════════════════════════════════════ */

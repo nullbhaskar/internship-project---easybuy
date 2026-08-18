@@ -42,7 +42,7 @@ const WishlistContext = createContext<WishlistContextType>({
 export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
-  const { isGuest, isAuthenticated, requireAuth } = useAuth();
+  const { isGuest, isAuthenticated, user, requireAuth } = useAuth();
 
   // Load Wishlist on mount / auth change
   useEffect(() => {
@@ -61,9 +61,9 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         }
 
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const userDocRef = doc(db, 'users', currentUser.uid);
+        const activeUid = user?.uid || auth.currentUser?.uid;
+        if (activeUid) {
+          const userDocRef = doc(db, 'users', activeUid);
           const snap = await getDoc(userDocRef);
           if (snap.exists() && snap.data().wishlist) {
             setWishlistItems(snap.data().wishlist);
@@ -75,15 +75,15 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }
     loadWishlistData();
-  }, [isGuest, isAuthenticated]);
+  }, [isGuest, isAuthenticated, user?.uid]);
 
   const persistWishlist = async (items: WishlistItem[]) => {
-    if (isGuest || !auth.currentUser) return;
+    if (isGuest) return;
     try {
       await AsyncStorage.setItem('easybuy_wishlist_items', JSON.stringify(items));
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        const userDocRef = doc(db, 'users', currentUser.uid);
+      const activeUid = user?.uid || auth.currentUser?.uid;
+      if (activeUid) {
+        const userDocRef = doc(db, 'users', activeUid);
         await setDoc(userDocRef, { wishlist: items }, { merge: true });
       }
     } catch (e) {

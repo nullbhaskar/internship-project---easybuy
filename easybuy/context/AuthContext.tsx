@@ -1,24 +1,39 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth, db } from '../services/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { GuestAuthModal } from '../components/auth/GuestAuthModal';
 
 export type AuthStateType = 'authenticated' | 'guest' | 'logged_out';
+
+export interface EasyBuyUser {
+  uid: string;
+  email: string;
+  fullName?: string;
+  phone?: string;
+  gender?: string;
+  dob?: string;
+  photoURL?: string;
+  isAdmin?: boolean;
+}
 
 interface AuthContextType {
   authState: AuthStateType;
   isAuthenticated: boolean;
   isGuest: boolean;
-  user: User | null;
+  user: EasyBuyUser | null;
   setGuestMode: () => Promise<void>;
   exitGuestMode: () => Promise<void>;
+  setAuthenticatedUser: (user: EasyBuyUser) => Promise<void>;
+  logout: () => Promise<void>;
   requireAuth: (actionPrompt?: string, onAuthenticated?: () => void) => boolean;
   openAuthModal: (actionPrompt?: string) => void;
   closeAuthModal: () => void;
 }
 
 const GUEST_STORAGE_KEY = 'easybuy_guest_mode';
+const USER_SESSION_KEY = 'easybuy_user_session';
 
 const AuthContext = createContext<AuthContextType>({
   authState: 'logged_out',
@@ -27,6 +42,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   setGuestMode: async () => {},
   exitGuestMode: async () => {},
+  setAuthenticatedUser: async () => {},
+  logout: async () => {},
   requireAuth: () => false,
   openAuthModal: () => {},
   closeAuthModal: () => {},
@@ -34,43 +51,111 @@ const AuthContext = createContext<AuthContextType>({
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [authState, setAuthState] = useState<AuthStateType>('logged_out');
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<EasyBuyUser | null>(null);
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [authModalPrompt, setAuthModalPrompt] = useState<string | undefined>(undefined);
 
-  // Synchronize Firebase Auth & local guest storage
+  // Synchronize Firebase Auth & local session storage
   useEffect(() => {
     let isMounted = true;
 
-    // Check local guest mode flag
-    const checkLocalGuestState = async (firebaseUser: User | null) => {
+    const initAuth = async () => {
       try {
-        if (firebaseUser) {
-          // If we have a real Firebase user, clear guest mode flag
+        // 1. First check if a stored user session exists
+        const storedSession = await AsyncStorage.getItem(USER_SESSION_KEY);
+        if (storedSession) {
+          const parsedUser = JSON.parse(storedSession) as EasyBuyUser;
+          if (parsedUser && parsedUser.email) {
+            await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
+            if (isMounted) {
+              setUser(parsedUser);
+              setAuthState('authenticated');
+            }
+            return;
+          }
+        }
+
+        // 2. Check if Firebase currentUser exists
+        if (auth.currentUser) {
+          const fbUser = auth.currentUser;
+          let profileData: EasyBuyUser = {
+            uid: fbUser.uid,
+            email: fbUser.email || '',
+            fullName: fbUser.displayName || 'EasyBuy User',
+            photoURL: fbUser.photoURL || undefined,
+          };
+
+          try {
+            const snap = await getDoc(doc(db, 'users', fbUser.uid));
+            if (snap.exists()) {
+              const d = snap.data();
+              profileData = {
+                ...profileData,
+                fullName: d.fullName || profileData.fullName,
+                phone: d.phone,
+                gender: d.gender,
+                dob: d.dob,
+              };
+            }
+          } catch {}
+
           await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
+          await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify(profileData));
           if (isMounted) {
-            setUser(firebaseUser);
+            setUser(profileData);
             setAuthState('authenticated');
           }
-        } else {
-          // No Firebase user - check if guest mode was enabled
-          const isGuestStored = await AsyncStorage.getItem(GUEST_STORAGE_KEY);
-          if (isMounted) {
+          return;
+        }
+
+        // 3. Otherwise check if Guest mode was set
+        const isGuestStored = await AsyncStorage.getItem(GUEST_STORAGE_KEY);
+        if (isMounted) {
+          if (isGuestStored === 'true') {
             setUser(null);
-            if (isGuestStored === 'true') {
-              setAuthState('guest');
-            } else {
-              setAuthState('logged_out');
-            }
+            setAuthState('guest');
+          } else {
+            setUser(null);
+            setAuthState('logged_out');
           }
         }
       } catch (e) {
-        console.log('Error initializing auth state:', e);
+        console.log('Error initializing auth context:', e);
       }
     };
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      checkLocalGuestState(firebaseUser);
+    initAuth();
+
+    // Firebase Auth listener
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!isMounted) return;
+      if (firebaseUser) {
+        let profile: EasyBuyUser = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          fullName: firebaseUser.displayName || 'EasyBuy User',
+          photoURL: firebaseUser.photoURL || undefined,
+        };
+
+        try {
+          const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (snap.exists()) {
+            const d = snap.data();
+            profile = {
+              ...profile,
+              fullName: d.fullName || profile.fullName,
+              phone: d.phone,
+              gender: d.gender,
+              dob: d.dob,
+            };
+          }
+        } catch {}
+
+        await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
+        await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify(profile));
+        setUser(profile);
+        setAuthState('authenticated');
+      }
     });
 
     return () => {
@@ -79,8 +164,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  const setAuthenticatedUser = async (userData: EasyBuyUser) => {
+    try {
+      await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
+      await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify(userData));
+      setUser(userData);
+      setAuthState('authenticated');
+    } catch (e) {
+      console.log('Error setting authenticated user:', e);
+    }
+  };
+
   const setGuestMode = async () => {
     try {
+      await AsyncStorage.removeItem(USER_SESSION_KEY);
       await AsyncStorage.setItem(GUEST_STORAGE_KEY, 'true');
       setUser(null);
       setAuthState('guest');
@@ -92,11 +189,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const exitGuestMode = async () => {
     try {
       await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
-      if (!auth.currentUser) {
+      const storedSession = await AsyncStorage.getItem(USER_SESSION_KEY);
+      if (storedSession) {
+        const parsed = JSON.parse(storedSession);
+        setUser(parsed);
+        setAuthState('authenticated');
+      } else {
         setAuthState('logged_out');
       }
     } catch (e) {
       console.log('Error exiting guest mode:', e);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await AsyncStorage.removeItem(USER_SESSION_KEY);
+      await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
+      await AsyncStorage.removeItem('isAdmin');
+      try {
+        await signOut(auth);
+      } catch {}
+      setUser(null);
+      setAuthState('logged_out');
+    } catch (e) {
+      console.log('Logout error:', e);
     }
   };
 
@@ -112,9 +229,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * Universal Auth Guard Helper
-   * Call before any restricted action.
-   * If authenticated -> runs callback (if provided) and returns true.
-   * If guest/logged_out -> opens GuestAuthModal and returns false.
    */
   const requireAuth = (actionPrompt?: string, onAuthenticated?: () => void): boolean => {
     if (authState === 'authenticated' && user) {
@@ -127,7 +241,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const isGuest = authState === 'guest';
-  const isAuthenticated = authState === 'authenticated';
+  const isAuthenticated = authState === 'authenticated' && user !== null;
 
   return (
     <AuthContext.Provider
@@ -138,6 +252,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         setGuestMode,
         exitGuestMode,
+        setAuthenticatedUser,
+        logout,
         requireAuth,
         openAuthModal,
         closeAuthModal,
