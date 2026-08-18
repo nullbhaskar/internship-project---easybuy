@@ -491,6 +491,106 @@ export const generateRecipeOccasionBundle = async (spokenText: string, stateName
   };
 };
 
+// ─── 5. TWO-WAY CONVERSATIONAL CHATGPT SHOPPING ASSISTANT ──────────────────
+
+export interface AIChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface AIChatResponse {
+  replyText: string;
+  hasProducts: boolean;
+  bundle?: {
+    title: string;
+    emoji: string;
+    tagline?: string;
+    items: {
+      id: string;
+      name: string;
+      price: number;
+      quantity?: string;
+      category?: string;
+      reason?: string;
+      image?: string;
+    }[];
+    totalPrice: number;
+  };
+}
+
+/**
+ * Two-way interactive ChatGPT shopping assistant for EasyBuy.
+ * Converses naturally, tells jokes, answers questions, and seamlessly attaches product recommendations!
+ */
+export async function chatWithEasyBuyAI(
+  conversationHistory: AIChatMessage[],
+  stateName?: string
+): Promise<AIChatResponse> {
+  const locationHint = stateName ? ` The user is currently shopping from ${stateName}, India.` : ' The user is shopping in India.';
+
+  const systemMessage: AIChatMessage = {
+    role: 'system',
+    content:
+      'You are EasyBuy AI, a warm, witty, and super-intelligent personal shopping assistant (powered by Groq).\n' +
+      'You can chat naturally about anything (greetings, life advice, recipes, party styling, tech gadgets, workouts, or general fun).\n' +
+      locationHint + '\n' +
+      'Speak in a friendly, conversational mix of English and Hinglish (or whichever language the user uses).\n' +
+      'Whenever the user asks for products, gifts, recipes, outfits, groceries, or recommendations, attach 2 to 4 matching products with realistic Indian prices.\n' +
+      'Reply in this valid JSON format:\n' +
+      '{\n' +
+      '  "replyText": "Your direct conversational ChatGPT reply to the user (2-3 sentences max, warm & helpful).",\n' +
+      '  "hasProducts": true,\n' +
+      '  "bundle": {\n' +
+      '    "title": "Title with emoji (e.g. 🎁 Birthday Party Gift Kit)",\n' +
+      '    "emoji": "🎁",\n' +
+      '    "tagline": "Short sub-tagline",\n' +
+      '    "items": [\n' +
+      '      { "id": "p_1", "name": "Product Name", "price": 450, "quantity": "1 pc", "category": "gifts", "reason": "Why it is recommended" }\n' +
+      '    ]\n' +
+      '  }\n' +
+      '}\n' +
+      'If the user is just saying hi/chatting and does not need products yet, set "hasProducts": false and omit "bundle".\n' +
+      'Reply ONLY with pure JSON, no markdown formatting or backticks.',
+  };
+
+  try {
+    const groqMessages = [systemMessage, ...conversationHistory.slice(-6)];
+    const reply = await callGroq(groqMessages, 550);
+
+    const parsed = JSON.parse(reply);
+    if (parsed && parsed.replyText) {
+      let totalPrice = 0;
+      if (parsed.bundle && Array.isArray(parsed.bundle.items)) {
+        totalPrice = parsed.bundle.items.reduce((s: number, it: any) => s + (Number(it.price) || 99), 0);
+        parsed.bundle.totalPrice = totalPrice;
+      }
+      return {
+        replyText: parsed.replyText,
+        hasProducts: Boolean(parsed.hasProducts && parsed.bundle?.items?.length),
+        bundle: parsed.bundle,
+      };
+    }
+  } catch (e) {
+    console.log('[GroqAI] Chat assistant error, using fallback:', e);
+  }
+
+  // Fallback conversational response
+  const lastUserMsg = conversationHistory[conversationHistory.length - 1]?.content || '';
+  const fallbackShopping = await processUniversalAIShopping(lastUserMsg, stateName);
+
+  return {
+    replyText: fallbackShopping.chatReply || 'Hello! Main hoon aapka EasyBuy AI Assistant. Aap mujhse shopping, recipes, gifts, ya outfits ke baare mein kuch bhi pooch sakte hain!',
+    hasProducts: Boolean(fallbackShopping.items && fallbackShopping.items.length > 0),
+    bundle: {
+      title: fallbackShopping.title,
+      emoji: fallbackShopping.emoji,
+      tagline: fallbackShopping.tagline,
+      items: fallbackShopping.items,
+      totalPrice: fallbackShopping.totalPrice,
+    },
+  };
+}
+
 /**
  * Ask EasyBuy AI for product recommendations based on a natural language query.
  */

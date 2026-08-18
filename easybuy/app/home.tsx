@@ -53,6 +53,7 @@ import { QuickBuySection } from '../components/QuickBuySection';
 import { SpinWinModal } from '../components/SpinWinModal';
 import { AISmartFeed } from '../components/ai/AISmartFeed';
 import { VoiceBuyModal } from '../components/ai/VoiceBuyModal';
+import { AIAssistantChatModal } from '../components/ai/AIAssistantChatModal';
 import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { SpatialDrawerWrapper, SpatialDrawerRef } from '../components/navigation/SpatialDrawerWrapper';
 import { WalletModal } from '../components/wallet/WalletModal';
@@ -1748,6 +1749,7 @@ export default function HomeScreen() {
   const [editorialStoryModalVisible, setEditorialStoryModalVisible] = useState(false);
   const [selectedEditorialStory, setSelectedEditorialStory] = useState<any>(null);
   const [heroBgManualIndex, setHeroBgManualIndex] = useState<number | null>(null);
+  const [aiChatVisible, setAiChatVisible] = useState(false);
 
   // Auto-rotates background photo every 48 hours (2 days)
   const autoRotationIndex = useMemo(() => {
@@ -3946,7 +3948,44 @@ export default function HomeScreen() {
 
         
 
+        {/* ─── FLOATING AI ASSISTANT CONCIERGE BUTTON (FAB) ─── */}
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            bottom: 95,
+            right: 18,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: '#10B981',
+            paddingVertical: 10,
+            paddingHorizontal: 16,
+            borderRadius: 24,
+            gap: 8,
+            shadowColor: '#10B981',
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.45,
+            shadowRadius: 10,
+            elevation: 8,
+            zIndex: 999,
+          }}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            setAiChatVisible(true);
+          }}
+          activeOpacity={0.88}
+        >
+          <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+          <Text style={{ fontSize: 13, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 }}>
+            Ask AI ✨
+          </Text>
+        </TouchableOpacity>
+
         {/* ─── MODALS ─── */}
+        <AIAssistantChatModal
+          visible={aiChatVisible}
+          onClose={() => setAiChatVisible(false)}
+          isDarkMode={isDarkMode}
+        />
         <SearchModal visible={searchModalVisible} onClose={handleCloseSearchModal} initialMode={searchMode} isDarkMode={isDarkMode} />
         <SpinWinModal visible={spinWinModalVisible} onClose={() => setSpinWinModalVisible(false)} isDarkMode={isDarkMode} />
         <VoiceBuyModal
