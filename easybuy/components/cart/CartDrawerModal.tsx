@@ -11,13 +11,20 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import { useCart } from '../../context/CartContext';
 import { useEasyBuyTheme } from '../../constants/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+
+import { auth, db } from '../../services/firebase';
+import { collection, doc, setDoc } from 'firebase/firestore';
 
 const { height, width } = Dimensions.get('window');
 
 export const CartDrawerModal: React.FC = () => {
+  const router = useRouter();
   const { isDarkMode } = useEasyBuyTheme();
+  const { requireAuth } = useAuth();
   const {
     cartItems,
     isCartOpen,
@@ -35,13 +42,55 @@ export const CartDrawerModal: React.FC = () => {
   const [orderSuccess, setOrderSuccess] = useState(false);
 
   const handleCheckout = () => {
+    if (!requireAuth('proceed to checkout')) {
+      closeCart();
+      return;
+    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    setCheckoutModal(true);
+    closeCart();
+    router.push('/cart' as any);
   };
 
-  const handlePay = () => {
+  const handlePay = async () => {
+    if (!requireAuth('place an order')) {
+      closeCart();
+      return;
+    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setOrderSuccess(true);
+
+    try {
+      const newOrderRef = doc(collection(db, 'orders'));
+      const orderId = `#EB-${Math.floor(100000 + Math.random() * 900000)}`;
+      const currentUser = auth.currentUser;
+      
+      const orderData = {
+        id: newOrderRef.id,
+        orderId,
+        userEmail: currentUser?.email || 'guest@easybuy.com',
+        userName: currentUser?.displayName || 'Customer',
+        userId: currentUser?.uid || 'guest',
+        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        createdAt: new Date().toISOString(),
+        itemCount: totalItems,
+        totalAmount: `₹${totalAmount.toLocaleString('en-IN')}`,
+        paymentMethod: 'Online',
+        status: 'Processing',
+        currentStepIndex: 0,
+        products: cartItems.map(item => ({
+          id: item.id,
+          title: item.title,
+          price: item.price,
+          quantity: item.quantity,
+          image: item.image || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200',
+        })),
+      };
+
+      await setDoc(newOrderRef, orderData);
+    } catch (e) {
+      console.error('Error saving order to Firestore:', e);
+    }
+
     setTimeout(() => {
       setOrderSuccess(false);
       setCheckoutModal(false);
@@ -116,25 +165,43 @@ export const CartDrawerModal: React.FC = () => {
             <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1, marginVertical: 10 }}>
               {cartItems.map((item) => (
                 <View key={item.id} style={[styles.cartItemRow, isDarkMode && styles.cartItemRowDark]}>
-                  {item.image ? (
-                    <Image source={{ uri: item.image }} style={styles.itemThumbImg} resizeMode="cover" />
-                  ) : (
-                    <View style={styles.placeholderThumb}>
-                      <Ionicons name="cube-outline" size={24} color="#94A3B8" />
-                    </View>
-                  )}
-
-                  <View style={{ flex: 1, justifyContent: 'center' }}>
-                    <Text style={[styles.itemTitleTxt, isDarkMode && { color: '#F8FAFC' }]} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-                    {item.selectedVariant && (
-                      <Text style={styles.itemVariantTxt}>{item.selectedVariant}</Text>
+                  <TouchableOpacity
+                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                    onPress={() => {
+                      closeCart();
+                      router.push({
+                        pathname: '/product/[id]',
+                        params: {
+                          id: item.id,
+                          title: item.title,
+                          price: item.price,
+                          originalPrice: item.originalPrice,
+                          image: item.image,
+                        },
+                      } as any);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    {item.image ? (
+                      <Image source={{ uri: item.image }} style={styles.itemThumbImg} resizeMode="cover" />
+                    ) : (
+                      <View style={styles.placeholderThumb}>
+                        <Ionicons name="cube-outline" size={24} color="#94A3B8" />
+                      </View>
                     )}
-                    <Text style={[styles.itemPriceTxt, isDarkMode && { color: '#C084FC' }]}>
-                      {item.price}
-                    </Text>
-                  </View>
+
+                    <View style={{ flex: 1, justifyContent: 'center' }}>
+                      <Text style={[styles.itemTitleTxt, isDarkMode && { color: '#F8FAFC' }]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      {item.selectedVariant && (
+                        <Text style={styles.itemVariantTxt}>{item.selectedVariant}</Text>
+                      )}
+                      <Text style={[styles.itemPriceTxt, isDarkMode && { color: '#C084FC' }]}>
+                        {item.price}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
 
                   {/* Quantity Stepper [- count +] */}
                   <View style={[styles.qtyStepperBox, isDarkMode && { backgroundColor: '#1E293B' }]}>

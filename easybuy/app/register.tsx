@@ -25,6 +25,7 @@ import { AuthInput } from '../components/auth/AuthInput';
 import { BenefitItem } from '../components/auth/BenefitItem';
 import { LanguageSelector } from '../components/common/LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -38,6 +39,7 @@ const APPLE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 export default function RegisterScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const { setGuestMode } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -496,6 +498,19 @@ export default function RegisterScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Guest Mode Option */}
+          <TouchableOpacity
+            style={styles.guestBtn}
+            onPress={async () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              await setGuestMode();
+              router.replace('/home' as any);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.guestBtnText}>Continue as Guest ⚡</Text>
+          </TouchableOpacity>
+
           {/* Trust Badges Bar */}
           <Animated.View style={[styles.badgesRow, { opacity: badgesOp }]}>
             <BenefitItem iconName="shield-checkmark-outline" title={t('badge1Title')} subtitle={t('badge1Subtitle')} />
@@ -721,6 +736,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#2D6B42',
+  },
+  guestBtn: {
+    alignSelf: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  guestBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#166534',
+    letterSpacing: 0.2,
   },
 
   badgesRow: {

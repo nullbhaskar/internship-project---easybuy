@@ -6,9 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Switch,
-  Alert,
   Dimensions,
+  TextInput,
+  Linking,
+  Modal,
+  Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -16,37 +19,100 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { auth, db } from '../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, onSnapshot } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
 import { ExperimentalNavigation } from '../components/navigation/ExperimentalNavigation';
 import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { useWishlist } from '../context/WishlistContext';
 import { useCart } from '../context/CartContext';
 import { useAddress } from '../context/AddressContext';
-
+import { useAuth } from '../context/AuthContext';
+import { WalletModal } from '../components/wallet/WalletModal';
+import { LoyaltyModal } from '../components/loyalty/LoyaltyModal';
+import { SpatialDrawerWrapper, SpatialDrawerRef } from '../components/navigation/SpatialDrawerWrapper';
 const { width } = Dimensions.get('window');
+
+// ─── BRAND DESIGN TOKENS ───
+const BRAND_THEME = {
+  PRIMARY: '#2F6E49', // Deep Green
+  SECONDARY: '#89B882', // Mint Accent
+  ACCENT: '#F6CC63', // Warm Amber Gold
+  BG_CREAM: '#FAF7F2', // Warm Champagne Ivory Ambient Background
+  BG_DARK: '#090D16', // Obsidian Dark
+  CARD_WHITE: '#FFFFFF',
+  CARD_DARK: '#121927',
+  BORDER_DARK: '#1F293D',
+  TEXT_DARK: '#0F172A',
+  TEXT_MUTED: '#64748B',
+  CORAL: '#FF6B6B',
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { openWishlist } = useWishlist();
-  const { openCart } = useCart();
+  const { openWishlist, wishlistItems } = useWishlist();
+  const { openCart, totalItems } = useCart();
   const { openLocationModal } = useAddress();
-  const { isDarkMode: darkMode, toggleDarkMode } = useEasyBuyTheme();
-  const [userName, setUserName] = useState('Bhaskar');
-  const [userEmail, setUserEmail] = useState('bhaskar@easybuy.com');
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [activeTab, setActiveTab] = useState('profile');
+  const { isDarkMode: darkMode } = useEasyBuyTheme();
+  const { isGuest, isAuthenticated, openAuthModal, exitGuestMode } = useAuth();
+  const spatialDrawerRef = React.useRef<SpatialDrawerRef>(null);
+  const isDark = darkMode;
 
+  const [userName, setUserName] = useState('Bhaskar');
+  const [userEmail, setUserEmail] = useState('bhaskar@example.com');
+  const [ordersCount, setOrdersCount] = useState(2);
+
+  // Additional Profile Fields
+  const [userPhone, setUserPhone] = useState('+91 98765 43210');
+  const [editPhone, setEditPhone] = useState('+91 98765 43210');
+  const [userGender, setUserGender] = useState('Male');
+  const [editGender, setEditGender] = useState('Male');
+  const [userDob, setUserDob] = useState('15/08/2003');
+  const [editDob, setEditDob] = useState('15/08/2003');
+
+  // Personal Info Edit states
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+
+  // Modal visibilities
+  const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [walletModalVisible, setWalletModalVisible] = useState(false);
+  const [loyaltyModalVisible, setLoyaltyModalVisible] = useState(false);
+  const [privacyVisible, setPrivacyVisible] = useState(false);
+
+  // Fetch user data & order count dynamically
   useEffect(() => {
     async function fetchUserData() {
       const currentUser = auth.currentUser;
       if (currentUser) {
-        if (currentUser.email) setUserEmail(currentUser.email);
-        if (currentUser.displayName) setUserName(currentUser.displayName);
+        if (currentUser.email) {
+          setUserEmail(currentUser.email);
+          setEditEmail(currentUser.email);
+        }
+        if (currentUser.displayName) {
+          setUserName(currentUser.displayName);
+          setEditName(currentUser.displayName);
+        }
 
         try {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists() && userDoc.data().fullName) {
-            setUserName(userDoc.data().fullName);
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            if (data.fullName) {
+              setUserName(data.fullName);
+              setEditName(data.fullName);
+            }
+            if (data.phone) {
+              setUserPhone(data.phone);
+              setEditPhone(data.phone);
+            }
+            if (data.gender) {
+              setUserGender(data.gender);
+              setEditGender(data.gender);
+            }
+            if (data.dob) {
+              setUserDob(data.dob);
+              setEditDob(data.dob);
+            }
           }
         } catch (e) {
           console.log('Error fetching user profile:', e);
@@ -55,6 +121,58 @@ export default function ProfileScreen() {
     }
     fetchUserData();
   }, []);
+
+  // Listen to live orders count
+  useEffect(() => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    const collRef = collection(db, 'orders');
+    const unsubscribe = onSnapshot(collRef, (snapshot) => {
+      let count = 0;
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.userEmail === currentUser.email || currentUser.email === 'admineasybuy@gmail.com') {
+          count++;
+        }
+      });
+      setOrdersCount(count);
+    }, (err) => {
+      console.log('Error listening to orders count:', err);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleUpdateProfile = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    try {
+      // Update Firebase Auth profile
+      await updateProfile(currentUser, { displayName: editName });
+      
+      // Update Firestore user document
+      const userRef = doc(db, 'users', currentUser.uid);
+      await setDoc(userRef, {
+        fullName: editName,
+        phone: editPhone,
+        gender: editGender,
+        dob: editDob,
+      }, { merge: true });
+
+      setUserName(editName);
+      setUserPhone(editPhone);
+      setUserGender(editGender);
+      setUserDob(editDob);
+      setEditProfileVisible(false);
+      Alert.alert('Success', 'Profile updated successfully!');
+    } catch (e) {
+      console.log('Error updating profile:', e);
+      Alert.alert('Error', 'Failed to update profile details.');
+    }
+  };
 
   const handleLogout = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
@@ -67,587 +185,806 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleTabChange = (tabId: string) => {
-    if (tabId === 'home') {
-      router.push('/home');
-    } else if (tabId === 'orders') {
-      router.push('/orders');
-    } else {
-      setActiveTab(tabId);
-    }
-  };
-
   return (
-    <SafeAreaView style={[styles.container, darkMode && styles.containerDark]}>
-      <StatusBar style={darkMode ? 'light' : 'dark'} />
+    <SpatialDrawerWrapper
+      ref={spatialDrawerRef}
+      userName={userName || 'Bhaskar'}
+      userEmail={auth.currentUser?.email || 'bhaskar@example.com'}
+      userAvatar={auth.currentUser?.photoURL || undefined}
+      onSelectMenuItem={(itemId) => {
+        if (itemId === 'categories') {
+          router.push('/all-items' as any);
+        } else if (itemId === 'wallet') {
+          setWalletModalVisible(true);
+        } else if (itemId === 'loyalty') {
+          setLoyaltyModalVisible(true);
+        } else if (itemId === 'locations') {
+          openLocationModal();
+        } else if (itemId === 'gift_ideas') {
+          Alert.alert('Gift Ideas', 'Coming Soon!');
+        } else if (itemId === 'help') {
+          setLoyaltyModalVisible(true);
+        } else if (itemId === 'logout') {
+          handleLogout();
+        }
+      }}
+    >
+      <SafeAreaView style={[S.root, isDark ? S.rootDark : S.rootLight]} edges={['top', 'left', 'right']}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      {/* ─── 1. TOP HEADER ─── */}
-      <View style={styles.headerRow}>
-        <TouchableOpacity
-          style={[styles.headerIconBtn, darkMode && styles.headerIconBtnDark]}
-          onPress={() => router.back()}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="arrow-back" size={18} color={darkMode ? '#F8FAFC' : '#0F172A'} />
-        </TouchableOpacity>
+        {/* ══ HEADER (LuxStore luxury branding) ═══════════════ */}
+        <View style={[S.header, isDark && S.headerDark]}>
+          <TouchableOpacity
+            style={S.headerIconBtn}
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              spatialDrawerRef.current?.openDrawer();
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="menu-outline" size={20} color={isDark ? '#F8FAFC' : '#0F172A'} />
+          </TouchableOpacity>
 
-        <View style={styles.headerTitleCenter}>
-          <Text style={[styles.headerTitle, darkMode && { color: '#F8FAFC' }]}>My Profile</Text>
-          <Text style={[styles.headerSubtitle, darkMode && { color: '#94A3B8' }]}>Manage your account and preferences</Text>
+          <View style={S.headerLogoContainer}>
+            <Text style={[S.headerLogoText, isDark && S.textLight]}>EasyBuy</Text>
+          </View>
+
+          <TouchableOpacity
+            style={S.headerIconBtn}
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              openWishlist();
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="heart-outline" size={21} color={isDark ? '#F8FAFC' : '#0F172A'} />
+            {wishlistItems.length > 0 && (
+              <View style={S.cartBadge}>
+                <Text style={S.cartBadgeText}>{wishlistItems.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={[styles.headerIconBtn, darkMode && styles.headerIconBtnDark]}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="notifications-outline" size={18} color={darkMode ? '#F8FAFC' : '#0F172A'} />
-          <View style={styles.notifBadge}>
-            <Text style={styles.notifBadgeText}>3</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scrollContent}>
+          {isGuest || !auth.currentUser ? (
+            /* ══════════════════════════════════════════════════
+               GUEST USER DEDICATED PROFILE VIEW
+               ══════════════════════════════════════════════════ */
+            <View>
+              {/* Guest Avatar & Status */}
+              <View style={S.avatarCenteredContainer}>
+                <View style={[S.avatarWrapper, { backgroundColor: isDark ? '#1E293B' : '#E8F5E9', justifyContent: 'center', alignItems: 'center' }]}>
+                  <Ionicons name="person" size={44} color="#2F6E49" />
+                  <View style={[S.eliteBadge, { backgroundColor: '#F6CC63' }]}>
+                    <Ionicons name="flash" size={10} color="#0F172A" style={{ marginRight: 2 }} />
+                    <Text style={S.eliteBadgeText}>GUEST</Text>
+                  </View>
+                </View>
+                <Text style={[S.profileNameText, isDark && S.textLight, { marginTop: 12 }]}>
+                  You're browsing as a Guest
+                </Text>
+                <Text style={[S.profileEmailText, { marginTop: 4, textAlign: 'center', paddingHorizontal: 24 }]}>
+                  Sign in to unlock your EasyBuy account & access all features.
+                </Text>
+              </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+              {/* Guest Primary Action Buttons */}
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 20, paddingHorizontal: 16 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    backgroundColor: BRAND_THEME.PRIMARY,
+                    borderRadius: 14,
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    shadowColor: BRAND_THEME.PRIMARY,
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 8,
+                    elevation: 4,
+                  }}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    router.push('/login');
+                  }}
+                  activeOpacity={0.88}
+                >
+                  <Ionicons name="log-in-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#FFFFFF' }}>Log In</Text>
+                </TouchableOpacity>
 
-        {/* ─── 2. MAIN USER PROFILE CARD ─── */}
-        <View style={[styles.mainUserCard, darkMode && styles.cardDark]}>
-          <View style={styles.userTopInfo}>
-            {/* Avatar with Camera Icon */}
-            <View style={styles.avatarWrapper}>
-              <Image
-                source={{ uri: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80' }}
-                style={styles.avatarImg}
-              />
-              <TouchableOpacity style={[styles.cameraEditBtn, darkMode && { backgroundColor: '#7C3AED' }]} activeOpacity={0.85}>
-                <Ionicons name="camera" size={12} color="#FFFFFF" />
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+                    borderRadius: 14,
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 1.5,
+                    borderColor: isDark ? '#334155' : '#D0E7D8',
+                  }}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    router.push('/register');
+                  }}
+                  activeOpacity={0.88}
+                >
+                  <Ionicons name="person-add-outline" size={17} color={BRAND_THEME.PRIMARY} style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: BRAND_THEME.PRIMARY }}>Sign Up</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* ══ LOCKED ACCOUNT FEATURES ═════════════════════ */}
+              <Text style={S.sectionHeader}>ACCOUNT FEATURES</Text>
+              <View style={[S.settingsGroupCard, isDark ? S.settingsGroupCardDark : S.settingsGroupCardLight]}>
+                {/* Locked Wishlist */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => openAuthModal('access your saved wishlist')}
+                  activeOpacity={0.75}
+                >
+                  <View style={[S.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                    <Ionicons name="heart-outline" size={16} color="#EF4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[S.rowTitle, isDark && S.textLight]}>Wishlist & Favorites</Text>
+                    <Text style={{ fontSize: 11, color: '#94A3B8' }}>Sign in to save items</Text>
+                  </View>
+                  <Ionicons name="lock-closed" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+                <View style={[S.rowDivider, isDark && S.rowDividerDark]} />
+
+                {/* Locked Orders */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => openAuthModal('view your order history')}
+                  activeOpacity={0.75}
+                >
+                  <View style={[S.iconBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+                    <Ionicons name="receipt-outline" size={16} color="#3B82F6" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[S.rowTitle, isDark && S.textLight]}>Orders & Tracking</Text>
+                    <Text style={{ fontSize: 11, color: '#94A3B8' }}>Sign in to track orders</Text>
+                  </View>
+                  <Ionicons name="lock-closed" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+                <View style={[S.rowDivider, isDark && S.rowDividerDark]} />
+
+                {/* Locked Addresses */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => openAuthModal('save delivery addresses')}
+                  activeOpacity={0.75}
+                >
+                  <View style={[S.iconBox, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
+                    <Ionicons name="location-outline" size={16} color="#10B981" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[S.rowTitle, isDark && S.textLight]}>Saved Addresses</Text>
+                    <Text style={{ fontSize: 11, color: '#94A3B8' }}>Sign in for express checkout</Text>
+                  </View>
+                  <Ionicons name="lock-closed" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+                <View style={[S.rowDivider, isDark && S.rowDividerDark]} />
+
+                {/* Locked Rewards */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => openAuthModal('earn EasyCoins and rewards')}
+                  activeOpacity={0.75}
+                >
+                  <View style={[S.iconBox, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+                    <Ionicons name="gift-outline" size={16} color="#F59E0B" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[S.rowTitle, isDark && S.textLight]}>Rewards & EasyCoins</Text>
+                    <Text style={{ fontSize: 11, color: '#94A3B8' }}>Earn points on every order</Text>
+                  </View>
+                  <Ionicons name="lock-closed" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+
+              {/* ══ APP PREFERENCES ═════════════════════ */}
+              <Text style={S.sectionHeader}>PREFERENCES & HELP</Text>
+              <View style={[S.settingsGroupCard, isDark ? S.settingsGroupCardDark : S.settingsGroupCardLight]}>
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    openLocationModal();
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={S.iconBox}>
+                    <Ionicons name="map-outline" size={16} color={BRAND_THEME.PRIMARY} />
+                  </View>
+                  <Text style={[S.rowTitle, isDark && S.textLight]}>Select Delivery Location</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+                <View style={[S.rowDivider, isDark && S.rowDividerDark]} />
+
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setPrivacyVisible(true);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={S.iconBox}>
+                    <Ionicons name="shield-checkmark-outline" size={16} color={BRAND_THEME.PRIMARY} />
+                  </View>
+                  <Text style={[S.rowTitle, isDark && S.textLight]}>Privacy & Security Policy</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            /* ══════════════════════════════════════════════════
+               AUTHENTICATED USER FULL PROFILE VIEW
+               ══════════════════════════════════════════════════ */
+            <View>
+              {/* ══ AVATAR PROFILE HEADER ════════════════════════ */}
+              <View style={S.avatarCenteredContainer}>
+                <View style={S.avatarWrapper}>
+                  <Image
+                    source={{ uri: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80' }}
+                    style={S.avatarImg}
+                  />
+                  {/* Elite Badge Overlay */}
+                  <View style={S.eliteBadge}>
+                    <Ionicons name="ribbon" size={10} color="#0F172A" style={{ marginRight: 2 }} />
+                    <Text style={S.eliteBadgeText}>ELITE</Text>
+                  </View>
+                </View>
+                <Text style={[S.profileNameText, isDark && S.textLight]}>{userName}</Text>
+                <Text style={S.profileEmailText}>{userEmail}</Text>
+              </View>
+
+              {/* ══ STATS OVERVIEW ROW ═══════════════════════════ */}
+              <View style={S.statsRow}>
+                {/* Orders Stat Box */}
+                <TouchableOpacity
+                  style={[S.statCard, isDark ? S.statCardDark : S.statCardLight]}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    router.push('/orders');
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[S.statNum, isDark && S.textLight]}>{ordersCount}</Text>
+                  <Text style={S.statLabel}>ORDERS</Text>
+                </TouchableOpacity>
+
+                {/* Wishlist Stat Box */}
+                <TouchableOpacity
+                  style={[S.statCard, isDark ? S.statCardDark : S.statCardLight]}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    openWishlist();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[S.statNum, isDark && S.textLight]}>{wishlistItems.length}</Text>
+                  <Text style={S.statLabel}>WISHLIST</Text>
+                </TouchableOpacity>
+
+                {/* Points Stat Box */}
+                <TouchableOpacity
+                  style={[S.statCard, isDark ? S.statCardDark : S.statCardLight]}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setLoyaltyModalVisible(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[S.statNum, isDark && S.textLight]}>2.4k</Text>
+                  <Text style={S.statLabel}>POINTS</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* ══ MEMBERSHIP BANNER ════════════════════════════ */}
+              <View style={[S.membershipCard, isDark && S.membershipCardDark]}>
+                <View style={S.membershipTopRow}>
+                  <View>
+                    <Text style={S.membershipTitle}>Aura Plus</Text>
+                    <Text style={S.membershipSub}>Premium Membership</Text>
+                  </View>
+                  <Ionicons name="diamond" size={24} color="#F6CC63" />
+                </View>
+
+                <View style={S.membershipBottomRow}>
+                  <View>
+                    <Text style={S.validLabel}>VALID THRU</Text>
+                    <Text style={S.validDate}>12/24</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={S.viewBenefitsBtn}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      setLoyaltyModalVisible(true);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={S.viewBenefitsText}>View Benefits</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* ══ ACCOUNT OPTIONS SECTION ═════════════════════ */}
+              <Text style={S.sectionHeader}>ACCOUNT</Text>
+              <View style={[S.settingsGroupCard, isDark ? S.settingsGroupCardDark : S.settingsGroupCardLight]}>
+                {/* Row 1: Personal Information */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setEditProfileVisible(true);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={S.iconBox}>
+                    <Ionicons name="person-outline" size={16} color={BRAND_THEME.PRIMARY} />
+                  </View>
+                  <Text style={[S.rowTitle, isDark && S.textLight]}>Personal Information</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+                <View style={[S.rowDivider, isDark && S.rowDividerDark]} />
+
+                {/* Row 2: Saved Addresses */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    openLocationModal();
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={S.iconBox}>
+                    <Ionicons name="location-outline" size={16} color={BRAND_THEME.PRIMARY} />
+                  </View>
+                  <Text style={[S.rowTitle, isDark && S.textLight]}>Saved Addresses</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+                <View style={[S.rowDivider, isDark && S.rowDividerDark]} />
+
+                {/* Row 3: Payment Methods */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setWalletModalVisible(true);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={S.iconBox}>
+                    <Ionicons name="card-outline" size={16} color={BRAND_THEME.PRIMARY} />
+                  </View>
+                  <Text style={[S.rowTitle, isDark && S.textLight]}>Payment Methods</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+
+              {/* ══ SETTINGS OPTIONS SECTION ═════════════════════ */}
+              <Text style={S.sectionHeader}>SETTINGS</Text>
+              <View style={[S.settingsGroupCard, isDark ? S.settingsGroupCardDark : S.settingsGroupCardLight]}>
+                {/* Row 1: Notifications */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    Alert.alert('Notifications', 'Push notifications toggle: Status active.');
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={S.iconBox}>
+                    <Ionicons name="notifications-outline" size={16} color={BRAND_THEME.PRIMARY} />
+                  </View>
+                  <Text style={[S.rowTitle, isDark && S.textLight]}>Notifications</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+                <View style={[S.rowDivider, isDark && S.rowDividerDark]} />
+
+                {/* Row 2: Privacy & Security */}
+                <TouchableOpacity
+                  style={S.settingRow}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setPrivacyVisible(true);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={S.iconBox}>
+                    <Ionicons name="shield-checkmark-outline" size={16} color={BRAND_THEME.PRIMARY} />
+                  </View>
+                  <Text style={[S.rowTitle, isDark && S.textLight]}>Privacy & Security</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+
+              {/* ══ SIGN OUT OUTLINE BUTTON ═════════════════════ */}
+              <TouchableOpacity
+                style={[S.signOutOutlineBtn, isDark && S.signOutOutlineBtnDark]}
+                onPress={handleLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={S.signOutOutlineBtnTxt}>SIGN OUT</Text>
               </TouchableOpacity>
             </View>
+          )}
 
-            {/* Name, Badge, Email */}
-            <View style={styles.userDetails}>
-              <View style={styles.nameRow}>
-                <Text style={[styles.userName, darkMode && { color: '#F8FAFC' }]}>{userName}</Text>
-                <Ionicons name="checkmark-circle" size={16} color="#3B82F6" />
+          <View style={{ height: 110 }} />
+        </ScrollView>
+
+        {/* ══ EDIT PROFILE MODAL ══════════════════════════ */}
+        <Modal visible={editProfileVisible} transparent animationType="slide" onRequestClose={() => setEditProfileVisible(false)}>
+          <View style={S.modalBackdrop}>
+            <TouchableOpacity style={S.modalDismissArea} onPress={() => setEditProfileVisible(false)} />
+            <View style={[S.modalSheet, isDark && S.modalSheetDark]}>
+              <View style={S.modalHandle} />
+              <Text style={[S.modalTitle, isDark && S.textLight]}>Edit Personal Information</Text>
+
+              <Text style={S.inputLabel}>Full Name</Text>
+              <TextInput
+                style={[S.textInput, isDark && S.textInputDark]}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Enter your name"
+                placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
+              />
+
+              <Text style={S.inputLabel}>Phone Number</Text>
+              <TextInput
+                style={[S.textInput, isDark && S.textInputDark]}
+                value={editPhone}
+                onChangeText={setEditPhone}
+                placeholder="Enter phone number"
+                keyboardType="phone-pad"
+                placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
+              />
+
+              <Text style={S.inputLabel}>Date of Birth</Text>
+              <TextInput
+                style={[S.textInput, isDark && S.textInputDark]}
+                value={editDob}
+                onChangeText={setEditDob}
+                placeholder="DD/MM/YYYY"
+                placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
+              />
+
+              <Text style={S.inputLabel}>Gender</Text>
+              <View style={S.genderContainer}>
+                {['Male', 'Female', 'Other'].map((g) => {
+                  const isSel = editGender === g;
+                  return (
+                    <TouchableOpacity
+                      key={g}
+                      style={[
+                        S.genderPill,
+                        isSel && { borderColor: BRAND_THEME.PRIMARY, backgroundColor: '#EBF5EE' },
+                        isDark && isSel && { borderColor: BRAND_THEME.SECONDARY, backgroundColor: 'rgba(47, 110, 73, 0.25)' },
+                        isDark && !isSel && { borderColor: BRAND_THEME.BORDER_DARK },
+                      ]}
+                      onPress={() => setEditGender(g)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[S.genderPillText, isSel && { color: BRAND_THEME.PRIMARY }, isDark && isSel && { color: BRAND_THEME.SECONDARY }]}>
+                        {g}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
-              <View style={[styles.plusBadge, darkMode && { backgroundColor: '#1E1B4B' }]}>
-                <Ionicons name="sparkles" size={10} color={darkMode ? '#C084FC' : '#2F6E49'} />
-                <Text style={[styles.plusBadgeText, darkMode && { color: '#C084FC' }]}>EasyBuy Plus Member</Text>
+              <Text style={S.inputLabel}>Email Address</Text>
+              <TextInput
+                style={[S.textInput, isDark && S.textInputDark, { opacity: 0.6 }]}
+                value={editEmail}
+                editable={false}
+                placeholder="Email address"
+              />
+              <Text style={S.emailTipText}>Email cannot be changed directly.</Text>
+
+              <View style={S.modalActionsRow}>
+                <TouchableOpacity
+                  style={[S.modalBtn, S.modalBtnCancel]}
+                  onPress={() => setEditProfileVisible(false)}
+                >
+                  <Text style={S.cancelBtnTxt}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[S.modalBtn, S.modalBtnSave]}
+                  onPress={handleUpdateProfile}
+                >
+                  <Text style={S.saveBtnTxt}>Save Changes</Text>
+                </TouchableOpacity>
               </View>
-
-              <Text style={[styles.userEmail, darkMode && { color: '#94A3B8' }]}>{userEmail}</Text>
-            </View>
-
-            {/* Edit Profile Button */}
-            <TouchableOpacity style={[styles.editProfileBtn, darkMode && { backgroundColor: '#0F172A', borderColor: '#334155' }]} activeOpacity={0.8}>
-              <Ionicons name="create-outline" size={13} color={darkMode ? '#C084FC' : '#475569'} />
-              <Text style={[styles.editProfileText, darkMode && { color: '#F8FAFC' }]}>Edit Profile</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 4 STAT COUNTERS */}
-          <View style={[styles.statsRow, darkMode && { borderColor: '#334155' }]}>
-            <View style={styles.statBox}>
-              <Text style={[styles.statNum, darkMode && { color: '#F8FAFC' }]}>12</Text>
-              <Text style={[styles.statLabel, darkMode && { color: '#94A3B8' }]}>Orders</Text>
-            </View>
-            <View style={[styles.statDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-            <View style={styles.statBox}>
-              <Text style={[styles.statNum, darkMode && { color: '#F8FAFC' }]}>8</Text>
-              <Text style={[styles.statLabel, darkMode && { color: '#94A3B8' }]}>Wishlist</Text>
-            </View>
-            <View style={[styles.statDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-            <View style={styles.statBox}>
-              <Text style={[styles.statNum, darkMode && { color: '#F8FAFC' }]}>680</Text>
-              <Text style={[styles.statLabel, darkMode && { color: '#94A3B8' }]}>Coins</Text>
-            </View>
-            <View style={[styles.statDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-            <View style={styles.statBox}>
-              <Text style={[styles.statNum, darkMode && { color: '#F8FAFC' }]}>Lvl 7</Text>
-              <Text style={[styles.statLabel, darkMode && { color: '#94A3B8' }]}>Member Level</Text>
             </View>
           </View>
+        </Modal>
 
-          {/* PLUS MEMBER BANNER */}
-          <View style={[styles.plusBannerBox, darkMode && { backgroundColor: '#1E1B4B', borderColor: '#312E81' }]}>
-            <View style={[styles.plusCrownIcon, darkMode && { backgroundColor: '#7C3AED' }]}>
-              <Ionicons name="ribbon" size={16} color="#FFFFFF" />
+        {/* ══ PRIVACY POLICY MODAL ═════════════════════════ */}
+        <Modal visible={privacyVisible} transparent animationType="fade" onRequestClose={() => setPrivacyVisible(false)}>
+          <View style={S.modalBackdropCentered}>
+            <View style={[S.popupCard, isDark && S.popupCardDark]}>
+              <Text style={[S.popupTitle, isDark && S.textLight]}>Privacy & Data Protection</Text>
+              <ScrollView style={{ maxHeight: 220, marginVertical: 12 }}>
+                <Text style={S.popupBodyTxt}>
+                  EasyBuy values your privacy. We secure all personal credentials, address records, and purchase histories in encrypted Firestore tables. Payment methods are handled securely via transaction providers (Stripe/Razorpay) and are not stored directly on our servers. You can request account deletion or data exports by contacting support directly at privacy@easybuy.com.
+                </Text>
+              </ScrollView>
+              <TouchableOpacity
+                style={S.popupCloseBtn}
+                onPress={() => setPrivacyVisible(false)}
+              >
+                <Text style={S.popupCloseBtnTxt}>Close Policy</Text>
+              </TouchableOpacity>
             </View>
-
-            <View style={styles.plusBannerTextCol}>
-              <Text style={[styles.plusBannerTitle, darkMode && { color: '#F8FAFC' }]}>You are a Plus Member</Text>
-              <Text style={[styles.plusBannerSub, darkMode && { color: '#94A3B8' }]}>Enjoy free delivery, early access & exclusive offers.</Text>
-            </View>
-
-            <TouchableOpacity style={styles.viewBenefitsBtn} activeOpacity={0.8}>
-              <Text style={[styles.viewBenefitsText, darkMode && { color: '#C084FC' }]}>View Benefits</Text>
-              <Ionicons name="chevron-forward" size={12} color={darkMode ? '#C084FC' : '#2F6E49'} />
-            </TouchableOpacity>
           </View>
-        </View>
+        </Modal>
 
-        {/* ─── 4. MY SHOPPING SECTION ─── */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, darkMode && { color: '#F8FAFC' }]}>My Shopping</Text>
-          <TouchableOpacity activeOpacity={0.8} style={styles.viewAllRow}>
-            <Text style={[styles.viewAllText, darkMode && { color: '#A855F7' }]}>View All</Text>
-            <Ionicons name="arrow-forward" size={12} color={darkMode ? '#A855F7' : '#64748B'} />
-          </TouchableOpacity>
-        </View>
+        {/* Wallet & Loyalty Modals */}
+        <WalletModal visible={walletModalVisible} onClose={() => setWalletModalVisible(false)} isDarkMode={isDark} />
+        <LoyaltyModal visible={loyaltyModalVisible} onClose={() => setLoyaltyModalVisible(false)} isDarkMode={isDark} />
 
-        <View style={[styles.settingsGroupCard, darkMode && styles.cardDark]}>
-          {/* Row 1: My Orders */}
-          <TouchableOpacity style={styles.settingRow} activeOpacity={0.75}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#E8F5E9' }]}>
-              <Ionicons name="bag-handle-outline" size={18} color={darkMode ? '#A855F7' : '#2F6E49'} />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>My Orders</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Track, return or reorder items</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={darkMode ? '#64748B' : '#94A3B8'} />
-          </TouchableOpacity>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 2: Wishlist & Saved Items */}
-          <TouchableOpacity style={styles.settingRow} onPress={openWishlist} activeOpacity={0.75}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#FFEBEE' }]}>
-              <Ionicons name="heart-outline" size={18} color="#FF6B6B" />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>Wishlist & Saved Items</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Your favorite products</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={darkMode ? '#64748B' : '#94A3B8'} />
-          </TouchableOpacity>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 3: Shipping Addresses */}
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-              openLocationModal();
-            }}
-            activeOpacity={0.75}
-          >
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#E3F2FD' }]}>
-              <Ionicons name="location-outline" size={18} color="#3498DB" />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>Shipping Addresses</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Manage your addresses</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={darkMode ? '#64748B' : '#94A3B8'} />
-          </TouchableOpacity>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 4: My Reviews & Ratings */}
-          <TouchableOpacity style={styles.settingRow} activeOpacity={0.75}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#FFF3E0' }]}>
-              <Ionicons name="star-outline" size={18} color="#FF9800" />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>My Reviews & Ratings</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Reviews you have written</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={darkMode ? '#64748B' : '#94A3B8'} />
-          </TouchableOpacity>
-        </View>
-
-        {/* ─── 5. PREFERENCES & SETTINGS SECTION ─── */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, darkMode && { color: '#F8FAFC' }]}>Preferences & Settings</Text>
-        </View>
-
-        <View style={[styles.settingsGroupCard, darkMode && styles.cardDark]}>
-          {/* Row 1: Push Notifications */}
-          <View style={styles.settingRow}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#E8F5E9' }]}>
-              <Ionicons name="notifications-outline" size={18} color={darkMode ? '#A855F7' : '#2F6E49'} />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>Push Notifications</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Get order & offer updates</Text>
-            </View>
-            <Switch
-              value={pushNotifications}
-              onValueChange={(val) => {
-                Haptics.selectionAsync().catch(() => {});
-                setPushNotifications(val);
-              }}
-              trackColor={{ false: '#334155', true: '#7C3AED' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 2: Dark Mode */}
-          <View style={styles.settingRow}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#F3E5F5' }]}>
-              <Ionicons name="moon-outline" size={18} color={darkMode ? '#C084FC' : '#8E44AD'} />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>Dark Mode</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Save your eyes</Text>
-            </View>
-            <Switch
-              value={darkMode}
-              onValueChange={() => {
-                Haptics.selectionAsync().catch(() => {});
-                toggleDarkMode();
-              }}
-              trackColor={{ false: '#334155', true: '#7C3AED' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 3: Language */}
-          <TouchableOpacity style={styles.settingRow} activeOpacity={0.75}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#E3F2FD' }]}>
-              <Ionicons name="globe-outline" size={18} color="#3498DB" />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>Language</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Choose your language</Text>
-            </View>
-            <View style={styles.langValueRow}>
-              <Text style={[styles.langValueText, darkMode && { color: '#94A3B8' }]}>English</Text>
-              <Ionicons name="chevron-down" size={14} color={darkMode ? '#94A3B8' : '#64748B'} />
-            </View>
-          </TouchableOpacity>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 4: Help & Support */}
-          <TouchableOpacity style={styles.settingRow} activeOpacity={0.75}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#F3E5F5' }]}>
-              <Ionicons name="headset-outline" size={18} color={darkMode ? '#C084FC' : '#8E44AD'} />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>Help & Support</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Help center & support</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={darkMode ? '#64748B' : '#94A3B8'} />
-          </TouchableOpacity>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 5: Privacy & Security */}
-          <TouchableOpacity style={styles.settingRow} activeOpacity={0.75}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#E8F5E9' }]}>
-              <Ionicons name="shield-checkmark-outline" size={18} color={darkMode ? '#A855F7' : '#2F6E49'} />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, darkMode && { color: '#F8FAFC' }]}>Privacy & Security</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>Manage your data</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={darkMode ? '#64748B' : '#94A3B8'} />
-          </TouchableOpacity>
-          <View style={[styles.rowDivider, darkMode && { backgroundColor: '#334155' }]} />
-
-          {/* Row 6: Logout */}
-          <TouchableOpacity style={styles.settingRow} onPress={handleLogout} activeOpacity={0.75}>
-            <View style={[styles.iconBox, darkMode ? { backgroundColor: '#0F172A' } : { backgroundColor: '#FFEBEE' }]}>
-              <Ionicons name="log-out-outline" size={18} color="#FF6B6B" />
-            </View>
-            <View style={styles.rowLabelCol}>
-              <Text style={[styles.rowTitle, { color: '#FF6B6B' }]}>Logout</Text>
-              <Text style={[styles.rowSub, darkMode && { color: '#94A3B8' }]}>See you again!</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={darkMode ? '#64748B' : '#94A3B8'} />
-          </TouchableOpacity>
-        </View>
-
-        {/* ─── 6. BOTTOM LOG OUT BUTTON ─── */}
-        <TouchableOpacity style={[styles.bottomLogoutBtn, darkMode && { backgroundColor: '#1E293B', borderColor: '#334155' }]} onPress={handleLogout} activeOpacity={0.85}>
-          <Ionicons name="log-out-outline" size={18} color={darkMode ? '#FF6B6B' : '#0F172A'} />
-          <Text style={[styles.bottomLogoutText, darkMode && { color: '#FF6B6B' }]}>Log Out Account</Text>
-        </TouchableOpacity>
-
-      </ScrollView>
-
-      {/* ─── FLOATING SEGMENTED DOCK ─── */}
-      <ExperimentalNavigation
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-        isDarkMode={darkMode}
-      />
-    </SafeAreaView>
+        {/* Navigation Dock */}
+        <ExperimentalNavigation
+          activeTab="profile"
+          onTabChange={(tabId) => {
+            if (tabId === 'home') router.push('/home');
+            if (tabId === 'orders') router.push('/orders');
+          }}
+          isDarkMode={isDark}
+        />
+      </SafeAreaView>
+    </SpatialDrawerWrapper>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+// ─── STYLES ──────────────────────────────────────────────────
+const S = StyleSheet.create({
+  root: {
     flex: 1,
-    backgroundColor: '#F8F9FF',
   },
-  containerDark: {
-    backgroundColor: '#0F172A',
+  rootLight: {
+    backgroundColor: BRAND_THEME.BG_CREAM, // Matches home champagne background
   },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 110,
+  rootDark: {
+    backgroundColor: BRAND_THEME.BG_DARK, // Matches home obsidian dark
   },
 
-  // 1. Header
-  headerRow: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#FFFFFF', // Header background white
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  headerDark: {
+    backgroundColor: BRAND_THEME.CARD_DARK,
+    borderBottomColor: BRAND_THEME.BORDER_DARK,
   },
   headerIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FFFFFF',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 2,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
+    position: 'relative',
   },
-  headerIconBtnDark: {
-    backgroundColor: '#1E293B',
-    borderColor: '#334155',
-    borderWidth: 1,
-  },
-  headerTitleCenter: {
+  headerLogoContainer: {
+    flex: 1,
     alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 18,
+  headerLogoText: {
+    fontSize: 20,
     fontWeight: '900',
-    color: '#0F172A',
+    color: BRAND_THEME.TEXT_DARK,
+    letterSpacing: -0.3,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
   },
-  headerSubtitle: {
-    fontSize: 11,
-    color: '#64748B',
-    fontWeight: '600',
+  textLight: {
+    color: '#F8FAFC',
   },
-  notifBadge: {
+  cartBadge: {
     position: 'absolute',
-    top: 4,
-    right: 4,
+    top: 2,
+    right: 2,
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: '#EF4444',
+    backgroundColor: BRAND_THEME.PRIMARY,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  notifBadgeText: {
+  cartBadgeText: {
     fontSize: 8,
     fontWeight: '900',
     color: '#FFFFFF',
   },
 
-  // 2. Main User Card
-  mainUserCard: {
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    marginBottom: 16,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
   },
-  cardDark: {
-    backgroundColor: '#1E293B',
-    borderColor: '#334155',
-  },
-  userTopInfo: {
-    flexDirection: 'row',
+
+  // Avatar Profile header
+  avatarCenteredContainer: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   avatarWrapper: {
     position: 'relative',
-    marginRight: 12,
+    marginBottom: 10,
   },
   avatarImg: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#CBD5E1',
   },
-  cameraEditBtn: {
+  eliteBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#7C3AED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  userDetails: {
-    flex: 1,
-  },
-  nameRow: {
+    bottom: -2,
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  userName: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#0F172A',
-  },
-  plusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#F6CC63',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
-    alignSelf: 'flex-start',
-    marginVertical: 4,
-    gap: 4,
+    borderRadius: 8,
+    elevation: 2,
   },
-  plusBadgeText: {
+  eliteBadgeText: {
     fontSize: 9,
     fontWeight: '900',
-    color: '#2F6E49',
+    color: '#0F172A',
   },
-  userEmail: {
-    fontSize: 11,
+  profileNameText: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: BRAND_THEME.TEXT_DARK,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+  },
+  profileEmailText: {
+    fontSize: 12,
     color: '#64748B',
-    fontWeight: '600',
-  },
-  editProfileBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
-    gap: 4,
-  },
-  editProfileText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#475569',
+    marginTop: 2,
   },
 
-  // Stats Row
+  // Stats Card Row
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#F1F5F9',
-    marginBottom: 14,
+    justifyContent: 'space-between',
+    marginBottom: 18,
+    gap: 10,
   },
-  statBox: {
+  statCard: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  statCardLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+  },
+  statCardDark: {
+    backgroundColor: BRAND_THEME.CARD_DARK,
+    borderColor: BRAND_THEME.BORDER_DARK,
   },
   statNum: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '900',
-    color: '#0F172A',
+    color: BRAND_THEME.TEXT_DARK,
   },
   statLabel: {
     fontSize: 10,
     color: '#64748B',
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: '#E2E8F0',
+    fontWeight: '800',
+    marginTop: 4,
   },
 
-  // Plus Member Banner
-  plusBannerBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FDF4',
-    padding: 12,
+  // Membership Card
+  membershipCard: {
+    backgroundColor: '#334155',
     borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  membershipCardDark: {
+    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#DCFCE7',
+    borderColor: '#475569',
   },
-  plusCrownIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#7C3AED',
+  membershipTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
+    marginBottom: 16,
   },
-  plusBannerTextCol: {
-    flex: 1,
+  membershipTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
   },
-  plusBannerTitle: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#0F172A',
+  membershipSub: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
   },
-  plusBannerSub: {
+  membershipBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  validLabel: {
     fontSize: 9,
+    fontWeight: '800',
     color: '#64748B',
-    marginTop: 1,
+  },
+  validDate: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginTop: 2,
   },
   viewBenefitsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
   },
   viewBenefitsText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#7C3AED',
+    color: '#FFFFFF',
   },
 
-  // Section Headers
+  // Sections Header
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-    marginTop: 4,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: 0.2,
-  },
-  viewAllRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  viewAllText: {
     fontSize: 11,
     fontWeight: '800',
     color: '#64748B',
+    marginBottom: 8,
+    marginTop: 8,
+    letterSpacing: 0.8,
   },
-
-  // Settings Group Card
   settingsGroupCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    paddingHorizontal: 14,
-    marginBottom: 16,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    marginBottom: 18,
     borderWidth: 1,
+  },
+  settingsGroupCardLight: {
+    backgroundColor: '#FFFFFF',
     borderColor: '#E2E8F0',
+  },
+  settingsGroupCardDark: {
+    backgroundColor: BRAND_THEME.CARD_DARK,
+    borderColor: BRAND_THEME.BORDER_DARK,
   },
   settingRow: {
     flexDirection: 'row',
@@ -655,57 +992,202 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  rowLabelCol: {
-    flex: 1,
-  },
   rowTitle: {
+    flex: 1,
     fontSize: 13,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  rowSub: {
-    fontSize: 10,
-    color: '#64748B',
-    marginTop: 1,
+    fontWeight: '700',
+    color: BRAND_THEME.TEXT_MUTED,
   },
   rowDivider: {
     height: 1,
     backgroundColor: '#F1F5F9',
   },
-  langValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  langValueText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748B',
+  rowDividerDark: {
+    backgroundColor: BRAND_THEME.BORDER_DARK,
   },
 
-  // Bottom Logout Button
-  bottomLogoutBtn: {
-    flexDirection: 'row',
+  // Sign out outline button
+  signOutOutlineBtn: {
+    borderWidth: 1,
+    borderColor: '#64748B',
+    borderRadius: 14,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+    backgroundColor: 'transparent',
+  },
+  signOutOutlineBtnDark: {
+    borderColor: '#475569',
+  },
+  signOutOutlineBtnTxt: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+  },
+
+  // Modals Sheet
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  modalDismissArea: {
+    flex: 1,
+  },
+  modalSheet: {
     backgroundColor: '#FFFFFF',
-    paddingVertical: 14,
-    borderRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  modalSheetDark: {
+    backgroundColor: BRAND_THEME.CARD_DARK,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontSize: 16.5,
+    fontWeight: '900',
+    color: BRAND_THEME.TEXT_DARK,
+    marginBottom: 14,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+  },
+  inputLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 6,
+    marginTop: 8,
+  },
+  textInput: {
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    gap: 8,
-    marginBottom: 16,
-  },
-  bottomLogoutText: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 13,
-    fontWeight: '900',
     color: '#0F172A',
+  },
+  textInputDark: {
+    backgroundColor: BRAND_THEME.BG_DARK,
+    borderColor: BRAND_THEME.BORDER_DARK,
+    color: '#F8FAFC',
+  },
+  emailTipText: {
+    fontSize: 10,
+    color: '#94A3B8',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBtnCancel: {
+    backgroundColor: '#F1F5F9',
+  },
+  modalBtnSave: {
+    backgroundColor: BRAND_THEME.PRIMARY,
+  },
+  cancelBtnTxt: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  saveBtnTxt: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  // Centered Popup Modals (Privacy)
+  modalBackdropCentered: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popupCard: {
+    width: width * 0.85,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    elevation: 10,
+  },
+  popupCardDark: {
+    backgroundColor: BRAND_THEME.CARD_DARK,
+  },
+  popupTitle: {
+    fontSize: 16.5,
+    fontWeight: '900',
+    color: BRAND_THEME.TEXT_DARK,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+  },
+  popupBodyTxt: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 18,
+  },
+  popupCloseBtn: {
+    backgroundColor: BRAND_THEME.PRIMARY,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  popupCloseBtnTxt: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  genderContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginVertical: 4,
+  },
+  genderPill: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genderPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748B',
   },
 });

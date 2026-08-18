@@ -25,6 +25,8 @@ import { AuthInput } from '../components/auth/AuthInput';
 import { BenefitItem } from '../components/auth/BenefitItem';
 import { LanguageSelector } from '../components/common/LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -41,6 +43,7 @@ const APPLE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 export default function LoginScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const { setGuestMode } = useAuth();
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -214,32 +217,51 @@ export default function LoginScreen() {
       setAuthError('');
       try {
         const cleanEmail = identifier.trim().toLowerCase();
+        const isAdminEmail = cleanEmail === 'admineasybuy@gmail.com' && password === 'admin@123';
 
-        // 1. Check email address and password against Firestore users collection
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('email', '==', cleanEmail), where('password', '==', password));
-        const querySnapshot = await getDocs(q);
+        let isAuthenticated = false;
 
-        let isAuthenticated = !querySnapshot.empty;
-
-        // 2. Also authenticate via Firebase Auth if needed
-        if (!isAuthenticated) {
+        if (isAdminEmail) {
+          isAuthenticated = true;
           try {
             await signInWithEmailAndPassword(auth, cleanEmail, password);
-            isAuthenticated = true;
           } catch (authErr) {
-            // Both failed
+            console.warn('Admin auth sign-in failed, continuing with static admin access:', authErr);
           }
         } else {
-          try {
-            await signInWithEmailAndPassword(auth, cleanEmail, password);
-          } catch (e) {}
+          // 1. Check email address and password against Firestore users collection
+          const usersRef = collection(db, 'users');
+          const q = query(usersRef, where('email', '==', cleanEmail), where('password', '==', password));
+          const querySnapshot = await getDocs(q);
+          isAuthenticated = !querySnapshot.empty;
+
+          // 2. Also authenticate via Firebase Auth if needed
+          if (!isAuthenticated) {
+            try {
+              await signInWithEmailAndPassword(auth, cleanEmail, password);
+              isAuthenticated = true;
+            } catch (authErr) {
+              // Both failed
+            }
+          } else {
+            try {
+              await signInWithEmailAndPassword(auth, cleanEmail, password);
+            } catch (e) {}
+          }
         }
 
         if (isAuthenticated) {
           setIsSubmitting(false);
           setIsAuthSuccess(true);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+          const isAdminEmail = cleanEmail === 'admineasybuy@gmail.com' && password === 'admin@123';
+          if (isAdminEmail) {
+            await AsyncStorage.setItem('isAdmin', 'true');
+          } else {
+            await AsyncStorage.removeItem('isAdmin');
+          }
+
           executePostLoginFlow().catch((e) => console.log('Post login flow error:', e));
 
           Animated.parallel([
@@ -248,7 +270,15 @@ export default function LoginScreen() {
           ]).start(() => {
             setTimeout(() => {
               Animated.timing(screenExitAnim, { toValue: 0, duration: 340, easing: APPLE_EASING, useNativeDriver: false })
-                .start(() => { setIsAuthSuccess(false); screenExitAnim.setValue(1); router.replace('/home' as any); });
+                .start(() => {
+                  setIsAuthSuccess(false);
+                  screenExitAnim.setValue(1);
+                  if (isAdminEmail) {
+                    router.replace('/admin' as any);
+                  } else {
+                    router.replace('/home' as any);
+                  }
+                });
             }, 380);
           });
         } else {
@@ -506,8 +536,9 @@ export default function LoginScreen() {
               {/* Guest Login Fallback Option */}
               <TouchableOpacity
                 style={styles.guestBtn}
-                onPress={() => {
+                onPress={async () => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  await setGuestMode();
                   router.replace('/home' as any);
                 }}
                 activeOpacity={0.8}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,11 +11,16 @@ import {
   Animated,
   Easing,
   AppState,
+  Platform,
+  ImageBackground,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Reanimated, {
   useSharedValue,
   useAnimatedScrollHandler,
   useAnimatedStyle,
+  useAnimatedReaction,
+  runOnJS,
   interpolate,
   Extrapolation,
 } from 'react-native-reanimated';
@@ -27,15 +32,19 @@ import * as Haptics from 'expo-haptics';
 import { auth, db } from '../services/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { ExperimentalNavigation } from '../components/navigation/ExperimentalNavigation';
-import { getHumanTimeGreeting } from '../constants/greetings';
+import { getDynamicWelcomeMessage } from '../constants/greetings';
 import { getRandomOpener } from '../constants/openers';
 import { SearchModal } from '../components/search/SearchModal';
+import { FilterModal } from '../components/search/FilterModal';
 import { LIFESTYLE_COLLECTIONS } from '../constants/collections';
 import { getSmartTrendingBannersAsync, getSmartTrendingBannersSync, SmartTrendingBanner } from '../constants/trendingEngine';
 import { QuickAddModal, QuickAddProduct } from '../components/cart/QuickAddModal';
 import { AnimatedThemeToggle } from '../components/ui/AnimatedThemeToggle';
+import { RevealOnScroll, ScrollContext } from '../components/ui/RevealOnScroll';
 import { LocationPickerModal } from '../components/location/LocationPickerModal';
 import { EditorialPromotionalBanner } from '../components/EditorialPromotionalBanner';
+import { DarkLuxuryPromotionalSection } from '../components/DarkLuxuryPromotionalSection';
+import { EditorialStoryModal, EditorialStoryData } from '../components/EditorialStoryModal';
 import { useAddress } from '../context/AddressContext';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
@@ -48,8 +57,43 @@ import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { SpatialDrawerWrapper, SpatialDrawerRef } from '../components/navigation/SpatialDrawerWrapper';
 import { WalletModal } from '../components/wallet/WalletModal';
 import { LoyaltyModal } from '../components/loyalty/LoyaltyModal';
+import { CuratedBundleModal, CuratedBundleInfo } from '../components/cart/CuratedBundleModal';
 
 const { width } = Dimensions.get('window');
+
+// ─── DARK LUXURY HERO BACKGROUND POOL (AUTO-ROTATES EVERY 48 HOURS) ───
+const DARK_HERO_BACKGROUND_POOL = [
+  {
+    id: 'greenhouse_glass',
+    name: 'Moody Glasshouse Sanctuary',
+    uri: 'https://images.unsplash.com/photo-1519996521430-02b798c1d881?w=1200&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'emerald_palms',
+    name: 'Deep Emerald Tropical Palms',
+    uri: 'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=1200&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'slate_monstera',
+    name: 'Dark Slate & Monstera Architecture',
+    uri: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=1200&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'mist_evergreen',
+    name: 'Misty Dark Evergreen Canopy',
+    uri: 'https://images.unsplash.com/photo-1448375240586-882707db888b?w=1200&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'pottery_oak',
+    name: 'Artisanal Studio & Dark Oak',
+    uri: 'https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=1200&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'courtyard_ambient',
+    name: 'Dark Courtyard & Warm Amber',
+    uri: 'https://images.unsplash.com/photo-1509048191080-d2984bad6ae5?w=1200&auto=format&fit=crop&q=80',
+  },
+];
 
 // ─── BRAND DESIGN TOKENS ───
 const THEME = {
@@ -188,8 +232,223 @@ const getValidImageUrl = (uri?: string, fallbackIndex: number = 0) => {
   return fallbacks[Math.abs(fallbackIndex) % fallbacks.length];
 };
 
+// ─── FRUIT SALAD HIGH-FIDELITY CATALOG (Mockup Specific) ───
+const FRUIT_SALAD_RECOMMENDED = [
+  {
+    id: 'salad_honey_lime',
+    title: 'Honey Lime Combo',
+    price: '₹ 2,000',
+    priceNum: 2000,
+    image: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+  {
+    id: 'salad_berry_mango',
+    title: 'Berry Mango Combo',
+    price: '₹ 8,000',
+    priceNum: 8000,
+    image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+  {
+    id: 'salad_melon_combo',
+    title: 'Melon Salad Combo',
+    price: '₹ 5,000',
+    priceNum: 5000,
+    image: 'https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+  {
+    id: 'salad_orange_combo',
+    title: 'Orange Berry Supreme',
+    price: '₹ 6,000',
+    priceNum: 6000,
+    image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+  {
+    id: 'salad_kiwi_dragon',
+    title: 'Kiwi Dragonfruit Bliss',
+    price: '₹ 7,500',
+    priceNum: 7500,
+    image: 'https://images.unsplash.com/photo-1590080875515-8a3a8dc5735e?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+  {
+    id: 'salad_avocado_crunch',
+    title: 'Avocado Crunch Salad',
+    price: '₹ 9,200',
+    priceNum: 9200,
+    image: 'https://images.unsplash.com/photo-1515543237350-b3eea1ec8082?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+  {
+    id: 'salad_pomegranate_gold',
+    title: 'Pomegranate Golden Mix',
+    price: '₹ 4,800',
+    priceNum: 4800,
+    image: 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+  {
+    id: 'salad_superfood_bowl',
+    title: 'Superfood Berry Bowl',
+    price: '₹ 11,000',
+    priceNum: 11000,
+    image: 'https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?w=400&q=80',
+    bgColor: '#FFFFFF',
+  },
+];
+
+const FRUIT_SALAD_TAB_PRODUCTS: Record<string, any[]> = {
+  hot: [
+    {
+      id: 'salad_quinoa',
+      title: 'Quinoa Fruit Salad',
+      price: '₹ 10,000',
+      priceNum: 10000,
+      image: 'https://images.unsplash.com/photo-1607532941433-304659e8198a?w=400&q=80',
+      bgColor: '#FFF9E6',
+    },
+    {
+      id: 'salad_tropical',
+      title: 'Tropical Fruit Salad',
+      price: '₹ 10,000',
+      priceNum: 10000,
+      image: 'https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?w=400&q=80',
+      bgColor: '#FFF0F2',
+    },
+    {
+      id: 'salad_melon_mix',
+      title: 'Melon Berry Mix',
+      price: '₹ 12,000',
+      priceNum: 12000,
+      image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&q=80',
+      bgColor: '#F1F0FF',
+    },
+    {
+      id: 'salad_citrus_glow',
+      title: 'Citrus Glow Delight',
+      price: '₹ 6,500',
+      priceNum: 6500,
+      image: 'https://images.unsplash.com/photo-1590080875515-8a3a8dc5735e?w=400&q=80',
+      bgColor: '#FEF3C7',
+    },
+    {
+      id: 'salad_fig_walnut',
+      title: 'Honey Fig & Walnut Bowl',
+      price: '₹ 14,000',
+      priceNum: 14000,
+      image: 'https://images.unsplash.com/photo-1515543237350-b3eea1ec8082?w=400&q=80',
+      bgColor: '#EDF2F7',
+    },
+    {
+      id: 'salad_chia_pudding',
+      title: 'Chia Fruit Parfait',
+      price: '₹ 8,500',
+      priceNum: 8500,
+      image: 'https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=400&q=80',
+      bgColor: '#EBF8FF',
+    },
+  ],
+  popular: [
+    {
+      id: 'salad_berry_mango',
+      title: 'Berry Mango Combo',
+      price: '₹ 8,000',
+      priceNum: 8000,
+      image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&q=80',
+      bgColor: '#EBF8FF',
+    },
+    {
+      id: 'salad_honey_lime',
+      title: 'Honey Lime Combo',
+      price: '₹ 2,000',
+      priceNum: 2000,
+      image: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&q=80',
+      bgColor: '#FFF9E6',
+    },
+    {
+      id: 'salad_avocado_crunch',
+      title: 'Avocado Crunch Salad',
+      price: '₹ 9,200',
+      priceNum: 9200,
+      image: 'https://images.unsplash.com/photo-1515543237350-b3eea1ec8082?w=400&q=80',
+      bgColor: '#E6FFFA',
+    },
+    {
+      id: 'salad_pomegranate_gold',
+      title: 'Pomegranate Golden Mix',
+      price: '₹ 4,800',
+      priceNum: 4800,
+      image: 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?w=400&q=80',
+      bgColor: '#FFF5F5',
+    },
+  ],
+  new: [
+    {
+      id: 'salad_kiwi_dragon',
+      title: 'Kiwi Dragonfruit Bliss',
+      price: '₹ 7,500',
+      priceNum: 7500,
+      image: 'https://images.unsplash.com/photo-1590080875515-8a3a8dc5735e?w=400&q=80',
+      bgColor: '#F0FFF4',
+    },
+    {
+      id: 'salad_tropical',
+      title: 'Tropical Fruit Salad',
+      price: '₹ 10,000',
+      priceNum: 10000,
+      image: 'https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?w=400&q=80',
+      bgColor: '#FFF0F2',
+    },
+    {
+      id: 'salad_superfood_bowl',
+      title: 'Superfood Berry Bowl',
+      price: '₹ 11,000',
+      priceNum: 11000,
+      image: 'https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?w=400&q=80',
+      bgColor: '#F3E8FF',
+    },
+    {
+      id: 'salad_quinoa',
+      title: 'Quinoa Fruit Salad',
+      price: '₹ 10,000',
+      priceNum: 10000,
+      image: 'https://images.unsplash.com/photo-1607532941433-304659e8198a?w=400&q=80',
+      bgColor: '#FFF9E6',
+    },
+  ],
+  top: [
+    {
+      id: 'salad_melon_mix',
+      title: 'Melon Berry Mix',
+      price: '₹ 12,000',
+      priceNum: 12000,
+      image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&q=80',
+      bgColor: '#F1F0FF',
+    },
+    {
+      id: 'salad_fig_walnut',
+      title: 'Honey Fig & Walnut Bowl',
+      price: '₹ 14,000',
+      priceNum: 14000,
+      image: 'https://images.unsplash.com/photo-1515543237350-b3eea1ec8082?w=400&q=80',
+      bgColor: '#EDF2F7',
+    },
+    {
+      id: 'salad_berry_mango',
+      title: 'Berry Mango Combo',
+      price: '₹ 8,000',
+      priceNum: 8000,
+      image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&q=80',
+      bgColor: '#EBF8FF',
+    },
+  ],
+};
+
 // ─── RECOMMENDED FOR YOU PRODUCTS ───
-const RECOMMENDED_PRODUCTS = catalog.slice(0, 16).map((p, idx) => ({
+const RECOMMENDED_PRODUCTS = catalog.slice(0, 40).map((p, idx) => ({
   id: p.id,
   title: p.name,
   price: p.price,
@@ -243,6 +502,7 @@ const SpringCard: React.FC<{
     }).start();
   };
 
+    
   return (
     <AnimatedTouchableOpacity
       activeOpacity={0.92}
@@ -495,6 +755,902 @@ const getTimeAwareSection = () => {
   }
 };
 
+// ─── LOCATION-SENSITIVE FASHION, BEAUTY & QUICKBUY CURATOR (EVERY STATE & UT) ───
+const getLocationSensitiveProducts = (userCity: string, stateId: string, stateName: string) => {
+  const cityLower = (userCity || '').toLowerCase();
+  const stateLower = (stateName || '').toLowerCase();
+  const stateIdUpper = (stateId || '').toUpperCase();
+
+  // 1. MAHARASHTRA & GOA (MH, GA - Mumbai, Pune, Panaji, Nagpur)
+  if (
+    stateIdUpper === 'MH' ||
+    stateIdUpper === 'GA' ||
+    stateLower.includes('maharashtra') ||
+    stateLower.includes('goa') ||
+    cityLower.includes('mumbai') ||
+    cityLower.includes('pune') ||
+    cityLower.includes('panaji')
+  ) {
+    const locName = cityLower.includes('pune') ? 'Pune' : cityLower.includes('panaji') ? 'Goa' : 'Mumbai';
+    return {
+      cityName: locName,
+      locationLabel: `${locName} • Bandra High-Street & Coastal Wear`,
+      products: [
+        {
+          id: 'mh-1',
+          title: 'Coastal Breeze Relaxed Linen-Blend Shirt',
+          price: '₹1,499',
+          originalPrice: '₹1,999',
+          image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=600&auto=format&fit=crop&q=80',
+          tag: `${locName} Coastal Linen`,
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-2',
+          title: 'Bandra High-Waist Wide-Leg Denim Jeans',
+          price: '₹1,999',
+          originalPrice: '₹2,699',
+          image: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=600&auto=format&fit=crop&q=80',
+          tag: 'Bandra Streetwear',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-3',
+          title: 'South Bombay Luxury Velvet Lipstick',
+          price: '₹799',
+          originalPrice: '₹1,099',
+          image: 'https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=600&auto=format&fit=crop&q=80',
+          tag: 'SoBo Glam Beauty',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-4',
+          title: 'Waterproof Ocean-Shield Mascara Duo',
+          price: '₹549',
+          originalPrice: '₹749',
+          image: 'https://images.unsplash.com/photo-1560700146-15555773360b?w=600&auto=format&fit=crop&q=80',
+          tag: 'Humidity-Proof Glam',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-5',
+          title: 'Handcrafted Paithani Silk Dupatta',
+          price: '₹2,199',
+          originalPrice: '₹2,999',
+          image: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+          tag: 'Maharashtra Heritage Silk',
+          category: 'ETHNIC FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-6',
+          title: 'Gold-Plated Minimalist Layered Chain',
+          price: '₹649',
+          originalPrice: '₹949',
+          image: 'https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80',
+          tag: 'Urban Accessories',
+          category: 'ACCESSORIES',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-7',
+          title: 'Sparkling Alphonso Mango Soda Can',
+          price: '₹99',
+          originalPrice: '₹130',
+          image: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=600&auto=format&fit=crop&q=80',
+          tag: 'Express QuickBuy Beverage',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'mh-8',
+          title: 'Handcrafted Sea Salt Chocolate Bites',
+          price: '₹175',
+          originalPrice: '₹220',
+          image: 'https://images.unsplash.com/photo-1582176647440-3b137b3156e3?w=600&auto=format&fit=crop&q=80',
+          tag: 'Express QuickBuy Snack',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'mh-9',
+          title: 'White Chunky Retro Street Sneakers',
+          price: '₹2,799',
+          originalPrice: '₹3,599',
+          image: 'https://images.unsplash.com/photo-1552346154-21d32810aba3?w=600&auto=format&fit=crop&q=80',
+          tag: 'Street Footwear',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-10',
+          title: 'Vitamin C Brightening Face Glow Drops',
+          price: '₹799',
+          originalPrice: '₹1,199',
+          image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=600&auto=format&fit=crop&q=80',
+          tag: 'Urban Skincare',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'mh-11',
+          title: 'Gourmet Peri Peri Cashews (150g)',
+          price: '₹299',
+          originalPrice: '₹380',
+          image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&auto=format&fit=crop&q=80',
+          tag: 'QuickBuy Healthy Snack',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'mh-12',
+          title: 'UV-Protected Retro Oversized Sunhat',
+          price: '₹899',
+          originalPrice: '₹1,299',
+          image: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=600&auto=format&fit=crop&q=80',
+          tag: 'Coastal Accessories',
+          category: 'ACCESSORIES',
+          isQuickBuy: false,
+        },
+      ],
+    };
+  }
+
+  // 2. KARNATAKA, TELANGANA & ANDHRA PRADESH (KA, TS, AP - Bengaluru, Hyderabad)
+  if (
+    stateIdUpper === 'KA' ||
+    stateIdUpper === 'TS' ||
+    stateIdUpper === 'TG' ||
+    stateIdUpper === 'AP' ||
+    stateLower.includes('karnataka') ||
+    stateLower.includes('telangana') ||
+    stateLower.includes('andhra') ||
+    cityLower.includes('bengaluru') ||
+    cityLower.includes('bangalore') ||
+    cityLower.includes('hyderabad')
+  ) {
+    const locName = cityLower.includes('hyderabad') ? 'Hyderabad' : 'Bengaluru';
+    return {
+      cityName: locName,
+      locationLabel: `${locName} • Indiranagar Tech & Jubilee Hills Chic`,
+      products: [
+        {
+          id: 'south-1',
+          title: 'Smart-Casual Breathable Knit Polo',
+          price: '₹1,299',
+          originalPrice: '₹1,799',
+          image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=600&auto=format&fit=crop&q=80',
+          tag: `${locName} Tech Casuals`,
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-2',
+          title: 'Indiranagar Slim-Fit Stretch Denim Jeans',
+          price: '₹1,899',
+          originalPrice: '₹2,499',
+          image: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=600&auto=format&fit=crop&q=80',
+          tag: 'Indiranagar Denim',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-3',
+          title: 'Nude Velvet Hydrating Lip Color',
+          price: '₹649',
+          originalPrice: '₹899',
+          image: 'https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=600&auto=format&fit=crop&q=80',
+          tag: 'Jubilee Hills Glam',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-4',
+          title: 'Handwoven Mysore Silk Saree',
+          price: '₹2,999',
+          originalPrice: '₹3,999',
+          image: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+          tag: 'Heritage South Silk',
+          category: 'ETHNIC FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-5',
+          title: 'Anti-Pollution Clarifying Face Wash',
+          price: '₹399',
+          originalPrice: '₹599',
+          image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=600&auto=format&fit=crop&q=80',
+          tag: 'Tech Park Skincare',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-6',
+          title: '18K Rose Gold Plated Hoop Earrings',
+          price: '₹599',
+          originalPrice: '₹899',
+          image: 'https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80',
+          tag: 'Urban Accessories',
+          category: 'ACCESSORIES',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-7',
+          title: 'Artisanal Cold Brew Black Coffee',
+          price: '₹149',
+          originalPrice: '₹199',
+          image: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=600&auto=format&fit=crop&q=80',
+          tag: 'Express QuickBuy Brew',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'south-8',
+          title: 'High-Protein Roasted Salted Almonds',
+          price: '₹249',
+          originalPrice: '₹320',
+          image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&auto=format&fit=crop&q=80',
+          tag: 'QuickBuy Fitness Snack',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'south-9',
+          title: 'Lightweight Breathable Runner Shoes',
+          price: '₹2,499',
+          originalPrice: '₹3,299',
+          image: 'https://images.unsplash.com/photo-1552346154-21d32810aba3?w=600&auto=format&fit=crop&q=80',
+          tag: 'Activewear Footwear',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-10',
+          title: 'Hydrating Coconut Water Mist (100ml)',
+          price: '₹299',
+          originalPrice: '₹450',
+          image: 'https://images.unsplash.com/photo-1608248597260-244e832d7a9f?w=600&auto=format&fit=crop&q=80',
+          tag: 'Daily Hydra Beauty',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'south-11',
+          title: 'Rich Filter Coffee Decoction Bottle',
+          price: '₹199',
+          originalPrice: '₹260',
+          image: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
+          tag: 'QuickBuy South Brew',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'south-12',
+          title: 'Minimalist Laptop Sleeve Bag',
+          price: '₹1,099',
+          originalPrice: '₹1,599',
+          image: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=600&auto=format&fit=crop&q=80',
+          tag: 'Tech Accessories',
+          category: 'ACCESSORIES',
+          isQuickBuy: false,
+        },
+      ],
+    };
+  }
+
+  // 3. GURGAON / DELHI / HARYANA / NCR (HR, DL - Gurgaon, Delhi, Noida)
+  if (
+    cityLower.includes('gurgaon') ||
+    cityLower.includes('gurugram') ||
+    cityLower.includes('delhi') ||
+    stateIdUpper === 'HR' ||
+    stateIdUpper === 'DL' ||
+    stateLower.includes('haryana') ||
+    stateLower.includes('delhi')
+  ) {
+    return {
+      cityName: 'Gurgaon',
+      locationLabel: 'DLF CyberCity & High-Street Fashion',
+      products: [
+        {
+          id: 'ggn-1',
+          title: 'High-Waist Vintage Straight Denim Jeans',
+          price: '₹1,899',
+          originalPrice: '₹2,499',
+          image: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=600&auto=format&fit=crop&q=80',
+          tag: 'Gurgaon High-Street Denim',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-2',
+          title: 'Oversized Relaxed Linen-Blend Shirt',
+          price: '₹1,299',
+          originalPrice: '₹1,799',
+          image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=600&auto=format&fit=crop&q=80',
+          tag: 'CyberCity Casual Wear',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-3',
+          title: 'Matte Velvet Luxury Lipstick (Ruby Nude)',
+          price: '₹699',
+          originalPrice: '₹999',
+          image: 'https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=600&auto=format&fit=crop&q=80',
+          tag: 'Gurgaon Beauty Bar',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-4',
+          title: 'Waterproof Ultra-Volume Express Mascara',
+          price: '₹499',
+          originalPrice: '₹699',
+          image: 'https://images.unsplash.com/photo-1560700146-15555773360b?w=600&auto=format&fit=crop&q=80',
+          tag: 'High-Street Glam',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-5',
+          title: 'Tailored Structured Cotton Crop Jacket',
+          price: '₹2,499',
+          originalPrice: '₹3,299',
+          image: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?w=600&auto=format&fit=crop&q=80',
+          tag: 'Corporate Chic Apparel',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-6',
+          title: 'Minimalist 18K Gold Plated Hoop Earrings',
+          price: '₹599',
+          originalPrice: '₹899',
+          image: 'https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80',
+          tag: 'Accessories Pick',
+          category: 'ACCESSORIES',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-7',
+          title: 'Sparkling Nitro Cold Brew Coffee (4-Pack)',
+          price: '₹199',
+          originalPrice: '₹275',
+          image: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=600&auto=format&fit=crop&q=80',
+          tag: 'Express QuickBuy Drink',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'ggn-8',
+          title: 'Hand-Cooked Truffle & Sea Salt Chips',
+          price: '₹149',
+          originalPrice: '₹199',
+          image: 'https://images.unsplash.com/photo-1566478989037-eec170784d07?w=600&auto=format&fit=crop&q=80',
+          tag: 'Express QuickBuy Snack',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'ggn-9',
+          title: 'Monochrome Chunky Dad Sneakers',
+          price: '₹2,899',
+          originalPrice: '₹3,799',
+          image: 'https://images.unsplash.com/photo-1552346154-21d32810aba3?w=600&auto=format&fit=crop&q=80',
+          tag: 'Gurgaon Street Footwear',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-10',
+          title: 'Hydrating Botanical Hyaluronic Face Serum',
+          price: '₹899',
+          originalPrice: '₹1,299',
+          image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=600&auto=format&fit=crop&q=80',
+          tag: 'CyberCity Skincare Essentials',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'ggn-11',
+          title: 'Artisanal Dark Chocolate Sea Salt Bar (100g)',
+          price: '₹185',
+          originalPrice: '₹240',
+          image: 'https://images.unsplash.com/photo-1582176647440-3b137b3156e3?w=600&auto=format&fit=crop&q=80',
+          tag: 'Express QuickBuy Gourmet',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'ggn-12',
+          title: 'Polarized Vintage Square Sunglasses',
+          price: '₹1,199',
+          originalPrice: '₹1,699',
+          image: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=600&auto=format&fit=crop&q=80',
+          tag: 'CyberCity Eyewear',
+          category: 'ACCESSORIES',
+          isQuickBuy: false,
+        },
+      ],
+    };
+  }
+
+  // 4. PUNJAB & CHANDIGARH (PB, CH, JK, HP - Amritsar, Chandigarh, Ludhiana)
+  if (
+    cityLower.includes('punjab') ||
+    cityLower.includes('chandigarh') ||
+    cityLower.includes('amritsar') ||
+    cityLower.includes('ludhiana') ||
+    stateIdUpper === 'PB' ||
+    stateIdUpper === 'CH' ||
+    stateIdUpper === 'JK' ||
+    stateIdUpper === 'HP' ||
+    stateLower.includes('punjab') ||
+    stateLower.includes('chandigarh')
+  ) {
+    return {
+      cityName: 'Punjab',
+      locationLabel: 'Amritsar Heritage & Chandigarh Urban Wear',
+      products: [
+        {
+          id: 'pb-1',
+          title: 'Handcrafted Phulkari Embroidered Kurti Set',
+          price: '₹1,499',
+          originalPrice: '₹1,999',
+          image: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+          tag: 'Amritsar Heritage Craft',
+          category: 'ETHNIC FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-2',
+          title: 'Oversized Graphic Streetwear Cotton Shirt',
+          price: '₹1,599',
+          originalPrice: '₹2,199',
+          image: 'https://images.unsplash.com/photo-1576995853123-5a10305d93c0?w=600&auto=format&fit=crop&q=80',
+          tag: 'Chandigarh Urban Wear',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-3',
+          title: 'Relaxed Fit Multi-Pocket Cargo Denim Jeans',
+          price: '₹1,999',
+          originalPrice: '₹2,599',
+          image: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=600&auto=format&fit=crop&q=80',
+          tag: 'Ludhiana Denim Hub',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-4',
+          title: 'Bold Ruby Red Velvet Liquid Matte Lipstick',
+          price: '₹699',
+          originalPrice: '₹999',
+          image: 'https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=600&auto=format&fit=crop&q=80',
+          tag: 'Punjab Glam Beauty',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-5',
+          title: 'High-Impact Intense Volume Mascara',
+          price: '₹499',
+          originalPrice: '₹699',
+          image: 'https://images.unsplash.com/photo-1560700146-15555773360b?w=600&auto=format&fit=crop&q=80',
+          tag: 'Express Beauty Pick',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-6',
+          title: 'Hand-Carved Antique Traditional Jhumkas',
+          price: '₹799',
+          originalPrice: '₹1,199',
+          image: 'https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80',
+          tag: 'Punjabi Heritage Jewels',
+          category: 'ACCESSORIES',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-7',
+          title: 'Pure Desi Cow Ghee & Gur Pinni Box',
+          price: '₹349',
+          originalPrice: '₹450',
+          image: 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=600&auto=format&fit=crop&q=80',
+          tag: 'Punjab QuickBuy Specialty',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'pb-8',
+          title: 'Authentic Amritsari Rose Lassi Bottle',
+          price: '₹120',
+          originalPrice: '₹160',
+          image: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
+          tag: 'QuickBuy Beverage',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'pb-9',
+          title: 'Hand-Embroidered Leather Mojari Juttis',
+          price: '₹1,299',
+          originalPrice: '₹1,799',
+          image: 'https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=600&auto=format&fit=crop&q=80',
+          tag: 'Heritage Punjab Footwear',
+          category: 'FOOTWEAR',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-10',
+          title: 'Royal Rose Water Face Toner Spray',
+          price: '₹399',
+          originalPrice: '₹599',
+          image: 'https://images.unsplash.com/photo-1608248597260-244e832d7a9f?w=600&auto=format&fit=crop&q=80',
+          tag: 'Natural Glow Beauty',
+          category: 'BEAUTY',
+          isQuickBuy: false,
+        },
+        {
+          id: 'pb-11',
+          title: 'Gourmet Roasted Pistachio & Almond Mix',
+          price: '₹299',
+          originalPrice: '₹399',
+          image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&auto=format&fit=crop&q=80',
+          tag: 'QuickBuy Healthy Snack',
+          category: 'QUICKBUY',
+          isQuickBuy: true,
+        },
+        {
+          id: 'pb-12',
+          title: 'Classic Woolen Tweed Blazer Coat',
+          price: '₹3,499',
+          originalPrice: '₹4,599',
+          image: 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=600&auto=format&fit=crop&q=80',
+          tag: 'Chandigarh Winter Apparel',
+          category: 'FASHION',
+          isQuickBuy: false,
+        },
+      ],
+    };
+  }
+
+  // 5. ALL OTHER STATES & UNION TERRITORIES (BIHAR, UP, MP, RAJASTHAN, GUJARAT, WB, KERALA, TN, ODISHA, ASSAM, ETC.)
+  const displayCity = userCity || stateName || 'Patna';
+  return {
+    cityName: displayCity,
+    locationLabel: `${displayCity} • Civil Lines & Regional Heritage`,
+    products: [
+      {
+        id: 'ptn-1',
+        title: 'Casual Breathable Printed Cotton Linen Shirt',
+        price: '₹1,199',
+        originalPrice: '₹1,699',
+        image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Menswear`,
+        category: 'FASHION',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-2',
+        title: 'Classic Woolen Tweed Blazer Overcoat',
+        price: '₹3,499',
+        originalPrice: '₹4,599',
+        image: 'https://images.unsplash.com/photo-1617137968427-85924c800a22?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Menswear`,
+        category: 'FASHION',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-3',
+        title: 'Obsidian Chronograph Leather Strap Watch',
+        price: '₹1,899',
+        originalPrice: '₹2,499',
+        image: 'https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Luxury Watch`,
+        category: 'ACCESSORIES',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-4',
+        title: 'Handloom Chanderi Cotton Kurti & Dupatta Set',
+        price: '₹1,499',
+        originalPrice: '₹1,999',
+        image: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Womens Heritage`,
+        category: 'ETHNIC FASHION',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-5',
+        title: 'Polarized Vintage Square Aviator Sunglasses',
+        price: '₹1,199',
+        originalPrice: '₹1,699',
+        image: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Mens Eyewear`,
+        category: 'ACCESSORIES',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-6',
+        title: 'Relaxed Fit Multi-Pocket Cargo Denim Jeans',
+        price: '₹1,699',
+        originalPrice: '₹2,299',
+        image: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Mens Streetwear`,
+        category: 'FASHION',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-7',
+        title: 'Handcrafted Full-Grain Leather Mojari Shoes',
+        price: '₹1,299',
+        originalPrice: '₹1,799',
+        image: 'https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Mens Footwear`,
+        category: 'FOOTWEAR',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-8',
+        title: 'Handloom Bhagalpuri Tussar Silk Saree',
+        price: '₹2,799',
+        originalPrice: '₹3,599',
+        image: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Silk Classic`,
+        category: 'ETHNIC FASHION',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-9',
+        title: 'Heavyweight Oversized Streetwear Hoodie',
+        price: '₹1,899',
+        originalPrice: '₹2,499',
+        image: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Urban Hoodie`,
+        category: 'FASHION',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-10',
+        title: 'Charcoal Beard & Facial Grooming Kit',
+        price: '₹799',
+        originalPrice: '₹1,199',
+        image: 'https://images.unsplash.com/photo-1621607512214-68297480165e?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Mens Grooming`,
+        category: 'BEAUTY',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-11',
+        title: 'Mithila Peri Peri Roasted Makhana (200g)',
+        price: '₹199',
+        originalPrice: '₹280',
+        image: 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} QuickBuy Snack`,
+        category: 'QUICKBUY',
+        isQuickBuy: true,
+      },
+      {
+        id: 'ptn-12',
+        title: 'Organic Roasted Bihar Chana Sattu Flour',
+        price: '₹149',
+        originalPrice: '₹199',
+        image: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=600&auto=format&fit=crop&q=80',
+        tag: 'QuickBuy Superfood',
+        category: 'QUICKBUY',
+        isQuickBuy: true,
+      },
+      {
+        id: 'ptn-13',
+        title: 'Silk Matte Lip Crayon (Dusty Rose)',
+        price: '₹599',
+        originalPrice: '₹849',
+        image: 'https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=600&auto=format&fit=crop&q=80',
+        tag: 'Regional Beauty',
+        category: 'BEAUTY',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-14',
+        title: 'Authentic Tilkut & Gur Anarsa Sweet Box',
+        price: '₹249',
+        originalPrice: '₹320',
+        image: 'https://images.unsplash.com/photo-1582176647440-3b137b3156e3?w=600&auto=format&fit=crop&q=80',
+        tag: 'Regional Sweet',
+        category: 'QUICKBUY',
+        isQuickBuy: true,
+      },
+      {
+        id: 'ptn-15',
+        title: 'Kesar & Sandalwood Radiance Face Glow Oil',
+        price: '₹649',
+        originalPrice: '₹899',
+        image: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=600&auto=format&fit=crop&q=80',
+        tag: 'Ayurvedic Skincare',
+        category: 'BEAUTY',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-16',
+        title: 'Handcrafted Oxidized Silver Hoop Jhumkas',
+        price: '₹549',
+        originalPrice: '₹799',
+        image: 'https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Jewelry`,
+        category: 'ACCESSORIES',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-17',
+        title: 'Retro Full-Grain Leather Court Sneakers',
+        price: '₹2,499',
+        originalPrice: '₹3,299',
+        image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=600&auto=format&fit=crop&q=80',
+        tag: `${displayCity} Mens Kicks`,
+        category: 'FOOTWEAR',
+        isQuickBuy: false,
+      },
+      {
+        id: 'ptn-18',
+        title: 'Single-Origin Chikmagalur Dark Roast Coffee',
+        price: '₹450',
+        originalPrice: '₹590',
+        image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=600&auto=format&fit=crop&q=80',
+        tag: 'Gourmet Coffee',
+        category: 'QUICKBUY',
+        isQuickBuy: true,
+      },
+    ],
+  };
+};
+
+// ─── DYNAMIC EDITORIAL JOURNAL GENERATOR (LOCATION & PRODUCT MATCHED) ───
+const getDynamicEditorialSection = (cityName: string, products: any[]) => {
+  const dayIndex = new Date().getDay(); // 0 to 6 daily rotation
+  const issueNumbers = ['ISSUE N° 04 — PROVENANCE', 'ISSUE N° 05 — HERITAGE', 'ISSUE N° 06 — CRAFT MASTERY', 'ISSUE N° 07 — REGIONAL EDITION', 'ISSUE N° 08 — ARTISANAL EDIT'];
+  const activeIssue = issueNumbers[dayIndex % issueNumbers.length];
+
+  const fashionProducts = products.filter(p => p.category === 'ETHNIC FASHION' || p.category === 'FOOTWEAR' || p.category === 'ACCESSORIES');
+  const foodGourmetProducts = products.filter(p => p.category === 'QUICKBUY' || p.title.toLowerCase().includes('coffee') || p.title.toLowerCase().includes('tea') || p.title.toLowerCase().includes('sweet') || p.title.toLowerCase().includes('makhana') || p.title.toLowerCase().includes('lassi'));
+  const beautyProducts = products.filter(p => p.category === 'BEAUTY' || p.title.toLowerCase().includes('oil') || p.title.toLowerCase().includes('toner') || p.title.toLowerCase().includes('face') || p.title.toLowerCase().includes('lip'));
+
+  const heroStory = {
+    issue: activeIssue,
+    title: `Artisanal Handlooms & Craft Heritage of ${cityName}`,
+    subtitle: `Curated small-batch creations directly from master weavers & craftsmen in ${cityName}.`,
+    author: 'EasyBuy Artisanal Desk',
+    readTime: '4 min read',
+    coverImage: fashionProducts[dayIndex % (fashionProducts.length || 1)]?.image || 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=900&auto=format&fit=crop&q=80',
+    paragraphs: [
+      `In an era dominated by fast fashion, there is a quiet revolution happening in master weavers' looms across ${cityName}. Artisans are returning to traditional methods—hand-spinning natural threads and slowly weaving timeless ethnic wear with bare hands.`,
+      `Each handloom weave bears the subtle mark of its maker: intricate patterns, micro-variations in dye, and a tactile weight that feels grounding. Pair these rustic textiles with authentic regional accessories, and daily attire transforms into a celebration of heritage.`,
+      `Our editorial curation brings together these regional treasures into an exclusive provenance edit for ${cityName}. Designed to elevate your wardrobe, each item tells a story of patience, passion, and uncompromising quality.`,
+    ],
+    featuredProducts: fashionProducts.length > 0 ? fashionProducts.slice(0, 3) : products.slice(0, 3),
+  };
+
+  const craftCards = [
+    {
+      title: 'Handloom & Ethnic Weaves',
+      subtitle: `Woven by traditional master weavers in ${cityName}`,
+      image: fashionProducts[0]?.image || 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=500&auto=format&fit=crop&q=80',
+      tag: 'TEXTILE ART',
+      story: {
+        issue: 'TEXTILE ART — EXCLUSIVE',
+        title: `Handloom Heritage of ${cityName}`,
+        author: 'EasyBuy Curation Team',
+        readTime: '3 min read',
+        coverImage: fashionProducts[0]?.image || 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=500&auto=format&fit=crop&q=80',
+        paragraphs: [
+          `Woven by traditional master weavers in ${cityName}, every thread carries generations of craft mastery.`,
+          `Discover rich textures, natural dyes, and royal drapes handcrafted for timeless elegance.`,
+        ],
+        featuredProducts: fashionProducts.length > 0 ? fashionProducts.slice(0, 3) : products.slice(0, 3),
+      },
+    },
+    {
+      title: `${cityName} Regional Delicacies`,
+      subtitle: `Authentic local flavors & small-batch treats`,
+      image: foodGourmetProducts[0]?.image || 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=500&auto=format&fit=crop&q=80',
+      tag: 'REGIONAL FLAVORS',
+      story: {
+        issue: 'REGIONAL FLAVORS — EXCLUSIVE',
+        title: `Gourmet Specialties of ${cityName}`,
+        author: 'EasyBuy Culinary Desk',
+        readTime: '3 min read',
+        coverImage: foodGourmetProducts[0]?.image || 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=500&auto=format&fit=crop&q=80',
+        paragraphs: [
+          `Sourced directly from famed food artisans in ${cityName}, these small-batch treats deliver authentic regional taste.`,
+          `Made using age-old recipes, wholesome ingredients, and zero artificial preservatives.`,
+        ],
+        featuredProducts: foodGourmetProducts.length > 0 ? foodGourmetProducts.slice(0, 3) : products.slice(3, 6),
+      },
+    },
+    {
+      title: 'Botanical Beauty & Oils',
+      subtitle: `Ayurvedic extracts & cold-pressed skincare`,
+      image: beautyProducts[0]?.image || 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=500&auto=format&fit=crop&q=80',
+      tag: 'PURE EXTRACTS',
+      story: {
+        issue: 'PURE EXTRACTS — EXCLUSIVE',
+        title: `Ayurvedic Skincare of ${cityName}`,
+        author: 'EasyBuy Beauty Desk',
+        readTime: '3 min read',
+        coverImage: beautyProducts[0]?.image || 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=500&auto=format&fit=crop&q=80',
+        paragraphs: [
+          `Cold-pressed & unrefined botanical herbs formulations designed for natural radiance and holistic wellness.`,
+          `Hand-harvested ingredients blended with traditional wisdom for daily skin nourishment.`,
+        ],
+        featuredProducts: beautyProducts.length > 0 ? beautyProducts.slice(0, 3) : products.slice(2, 5),
+      },
+    },
+  ];
+
+  return { heroStory, craftCards };
+};
+
+const HOME_CATEGORY_VISUALS: Record<string, { image: string; countText: string }> = {
+  electronics: { image: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=500&q=80', countText: '101 items' },
+  fashion: { image: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=500&q=80', countText: '101 items' },
+  beauty: { image: 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=500&q=80', countText: '376 items' },
+  home_living: { image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=500&q=80', countText: '240 items' },
+  gaming: { image: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=500&q=80', countText: '38 items' },
+  study_office: { image: 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?w=500&q=80', countText: '15 items' },
+  fitness: { image: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=500&q=80', countText: '37 items' },
+  hostel_essentials: { image: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=500&q=80', countText: '23 items' },
+  grocery: { image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500&q=80', countText: '377 items' },
+  kitchen: { image: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=500&q=80', countText: '38 items' },
+  lifestyle: { image: 'https://images.unsplash.com/photo-1509048191080-d2984bad6ae5?w=500&q=80', countText: '41 items' },
+  accessories: { image: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?w=500&q=80', countText: '38 items' },
+  footwear: { image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=500&q=80', countText: '38 items' },
+  sports: { image: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=500&q=80', countText: '37 items' },
+  pet_care: { image: 'https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?w=500&q=80', countText: '37 items' },
+  automobile: { image: 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=500&q=80', countText: '36 items' },
+  baby_care: { image: 'https://images.unsplash.com/photo-1515488042361-ee00e0ddd4e4?w=500&q=80', countText: '6 items' },
+  health_care: { image: 'https://images.unsplash.com/photo-1607619056574-7b8d304a2c08?w=500&q=80', countText: '37 items' },
+  gifts: { image: 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=500&q=80', countText: '36 items' },
+  men: { image: 'https://images.unsplash.com/photo-1617137968427-85924c800a22?w=500&q=80', countText: '350 items' },
+  women: { image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=500&q=80', countText: '400 items' },
+  ethnic_wear: { image: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=500&q=80', countText: '250 items' },
+};
+
+const HOME_SPOTLIGHT_POOL = [
+  { id: 'automobile', name: 'Automobile & Bike', badge: 'RIDING GEAR', tag: '36 items • Helmets & Care' },
+  { id: 'health_care', name: 'Health & Wellness', badge: 'ESSENTIALS', tag: '37 items • BP & Supplements' },
+  { id: 'pet_care', name: 'Pet Care & Food', badge: 'PET CARE', tag: '37 items • Dog & Cat Food' },
+  { id: 'gifts', name: 'Gifts & Hampers', badge: 'GIFT SPECIAL', tag: '36 items • Gourmet Hampers' },
+  { id: 'sports', name: 'Sports & Outdoors', badge: 'SPORTS', tag: '37 items • Cricket & Football' },
+  { id: 'footwear', name: 'Footwear & Kicks', badge: 'KICKS', tag: '38 items • Sneakers & Boots' },
+  { id: 'baby_care', name: 'Baby Care & Toys', badge: 'BABY CARE', tag: '6 items • Bath & Toys' },
+  { id: 'kitchen', name: 'Kitchen & Appliances', badge: 'HOME CHEF', tag: '38 items • Air Fryers & Cookware' },
+  { id: 'lifestyle', name: 'Lifestyle & Vibe', badge: 'AESTHETICS', tag: '41 items • Vinyl & Cameras' },
+  { id: 'accessories', name: 'Accessories & Bags', badge: 'BAGS & WATCHES', tag: '38 items • Backpacks & Watches' },
+  { id: 'fitness', name: 'Fitness & Gym', badge: 'WORKOUT', tag: '37 items • Home Gym & Mats' },
+  { id: 'gaming', name: 'Gaming Zone', badge: 'GAMING SETUP', tag: '38 items • PS5 & RGB Gear' },
+  { id: 'grocery', name: 'Supermarket Grocery', badge: 'DAILY FRESH', tag: '377 items • Snacks & Staples' },
+  { id: 'study_office', name: 'Study & Office', badge: 'WORKSPACE', tag: '15 items • Desk Lamps & Organizers' },
+  { id: 'hostel_essentials', name: 'Hostel Essentials', badge: 'DORM LIFE', tag: '23 items • Storage & Lighting' },
+];
+
+const getDailyHomeCategories = () => {
+  const dayIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
+  const shuffled = [...HOME_SPOTLIGHT_POOL];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.abs((dayIndex * 1664525 + (i * 1013904223)) % (i + 1));
+    const temp = shuffled[i];
+    shuffled[i] = shuffled[j];
+    shuffled[j] = temp;
+  }
+  return shuffled.slice(0, 5); 
+};
+
 export default function HomeScreen() {
   const router = useRouter();
   const {
@@ -513,8 +1669,18 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState('home');
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
 
+  const recommendedCategories = useMemo(() => getDailyHomeCategories(), []);
+
+  const locationSensitiveData = useMemo(() => {
+    return getLocationSensitiveProducts(
+      selectedAddress?.city || '',
+      selectedStateId || '',
+      selectedStateName || ''
+    );
+  }, [selectedAddress?.city, selectedStateId, selectedStateName]);
+
   const stateRecommendedProducts = (stateProducts.length >= 4 ? stateProducts : catalog)
-    .slice(0, 16)
+    .slice(0, 40)
     .map((p) => ({
       id: p.id,
       title: p.name,
@@ -546,20 +1712,26 @@ export default function HomeScreen() {
   const [voiceBuyVisible, setVoiceBuyVisible] = useState(false);
   const [userWeather, setUserWeather] = useState('72° Sunny');
 
-  // ─── Human Indian Time-Aware Greeting Engine ───
-  const [greetingText, setGreetingText] = useState('👋 Yo, Bhaskar!');
-  const [subtitleText, setSubtitleText] = useState('Let’s get today rolling.');
+    // ─── Human Indian Time-Aware Greeting Engine ───
+  const [greetingText, setGreetingText] = useState('Welcome to EasyBuy.');
+  const [subtitleText, setSubtitleText] = useState('');
   const greetingFadeAnim = useRef(new Animated.Value(1)).current;
   const greetingTranslateY = useRef(new Animated.Value(0)).current;
 
-  const loadFreshGreeting = async () => {
-    const data = await getHumanTimeGreeting(userName);
+    const loadFreshGreeting = async () => {
+    const currentMonth = new Date().getMonth();
+    const simulatedWeather = (currentMonth === 5 || currentMonth === 6) ? 'rain' : (currentMonth === 11 || currentMonth === 0) ? 'cold' : 'pleasant';
+    const msg = getDynamicWelcomeMessage(userName || 'Bhaskar', {
+      wishlistCount: Object.values(favorites || {}).filter(Boolean).length,
+      weather: simulatedWeather,
+      campaign: 'none',
+    });
     Animated.parallel([
       Animated.timing(greetingFadeAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
       Animated.timing(greetingTranslateY, { toValue: -8, duration: 150, useNativeDriver: false }),
     ]).start(() => {
-      setGreetingText(data.greeting);
-      setSubtitleText(data.subtitle);
+      setGreetingText(msg);
+      setSubtitleText('');
       greetingTranslateY.setValue(8);
       Animated.parallel([
         Animated.timing(greetingFadeAnim, { toValue: 1, duration: 280, useNativeDriver: false }),
@@ -572,6 +1744,21 @@ export default function HomeScreen() {
   const menuBtnScale = useRef(new Animated.Value(1)).current;
   const [walletModalVisible, setWalletModalVisible] = useState(false);
   const [loyaltyModalVisible, setLoyaltyModalVisible] = useState(false);
+  const [curatedBundleModalVisible, setCuratedBundleModalVisible] = useState(false);
+  const [editorialStoryModalVisible, setEditorialStoryModalVisible] = useState(false);
+  const [selectedEditorialStory, setSelectedEditorialStory] = useState<any>(null);
+  const [heroBgManualIndex, setHeroBgManualIndex] = useState<number | null>(null);
+
+  // Auto-rotates background photo every 48 hours (2 days)
+  const autoRotationIndex = useMemo(() => {
+    const twoDayPeriod = Math.floor(Date.now() / (1000 * 60 * 60 * 48));
+    return twoDayPeriod % DARK_HERO_BACKGROUND_POOL.length;
+  }, []);
+
+  const activeHeroBg = useMemo(() => {
+    const idx = heroBgManualIndex !== null ? heroBgManualIndex : autoRotationIndex;
+    return DARK_HERO_BACKGROUND_POOL[idx % DARK_HERO_BACKGROUND_POOL.length];
+  }, [heroBgManualIndex, autoRotationIndex]);
 
   const handleMenuBtnPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -646,6 +1833,79 @@ export default function HomeScreen() {
     },
   });
 
+  // Hero Banner "Explore Now" button dynamic scroll translation (slides left -> right on scroll down, returns on scroll up)
+  const exploreBtnAnimStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(
+      reanimatedScrollY.value,
+      [0, 180],
+      [0, 220],
+      Extrapolation.CLAMP
+    );
+    const opacity = interpolate(
+      reanimatedScrollY.value,
+      [0, 150],
+      [1, 0],
+      Extrapolation.CLAMP
+    );
+    return {
+      transform: [{ translateX }],
+      opacity,
+    };
+  });
+
+  // ─── TOP HEADER CART -> EXPLORE MORE SWAP WORKLETS ───
+  const cartHeaderAnimStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      reanimatedScrollY.value,
+      [150, 350],
+      [1, 0],
+      Extrapolation.CLAMP
+    );
+    const scale = interpolate(
+      reanimatedScrollY.value,
+      [150, 350],
+      [1, 0.5],
+      Extrapolation.CLAMP
+    );
+    const translateY = interpolate(
+      reanimatedScrollY.value,
+      [150, 350],
+      [0, -10],
+      Extrapolation.CLAMP
+    );
+    return {
+      opacity,
+      transform: [{ scale }, { translateY }],
+      pointerEvents: reanimatedScrollY.value > 250 ? ('none' as const) : ('auto' as const),
+    };
+  });
+
+  const exploreHeaderAnimStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      reanimatedScrollY.value,
+      [250, 450],
+      [0, 1],
+      Extrapolation.CLAMP
+    );
+    const scale = interpolate(
+      reanimatedScrollY.value,
+      [250, 450],
+      [0.6, 1],
+      Extrapolation.CLAMP
+    );
+    const translateX = interpolate(
+      reanimatedScrollY.value,
+      [250, 450],
+      [20, 0],
+      Extrapolation.CLAMP
+    );
+    return {
+      opacity,
+      transform: [{ scale }, { translateX }],
+      pointerEvents: reanimatedScrollY.value < 250 ? ('none' as const) : ('auto' as const),
+    };
+  });
+
   // 1. Collapsing iOS Header Subtitle Fade & Compression
   const reanimatedHeaderSubStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
@@ -684,6 +1944,19 @@ export default function HomeScreen() {
       transform: [{ scale }, { translateY }],
     };
   });
+
+  // Dynamic Menu Icon Color Switch (White on dark hero background -> Black when scrolling past into light body background)
+  const [isHeaderIconDark, setIsHeaderIconDark] = useState(false);
+
+  useAnimatedReaction(
+    () => reanimatedScrollY.value > 220,
+    (isPast, previous) => {
+      if (isPast !== previous) {
+        runOnJS(setIsHeaderIconDark)(isPast);
+      }
+    },
+    []
+  );
 
   // 3. Hero Editorial Parallax Movement
   const reanimatedHeroParallaxStyle = useAnimatedStyle(() => {
@@ -1138,8 +2411,14 @@ export default function HomeScreen() {
     return `${hrs.toString().padStart(2, '0')} : ${mins.toString().padStart(2, '0')} : ${secs.toString().padStart(2, '0')}`;
   };
 
-  // ─── Search Ticker & Modal State ───
+    // ─── Search Ticker & Modal State ───
   const [searchModalVisible, setSearchModalVisible] = useState(false);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [filters, setFilters] = useState({
+    sortBy: 'default',
+    maxPrice: 15000,
+    categoryFilter: 'all',
+  });
   const [searchMode, setSearchMode] = useState<'text' | 'voice' | 'camera'>('text');
   const [tickerIndex, setTickerIndex] = useState(0);
 
@@ -1167,6 +2446,53 @@ export default function HomeScreen() {
   const [selectedQuickAdd, setSelectedQuickAdd] = useState<QuickAddProduct | null>(null);
   const [quickAddVisible, setQuickAddVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [activeToastText, setActiveToastText] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTranslateY = useRef(new Animated.Value(8)).current;
+
+  useEffect(() => {
+    if (toastMessage) {
+      setActiveToastText(toastMessage);
+      setToastMessage(null); // immediately clear so it can re-trigger on tap
+
+      // Reset animation values
+      toastOpacity.setValue(0);
+      toastTranslateY.setValue(8);
+
+      // Fade In + Slide Up
+      Animated.parallel([
+        Animated.timing(toastOpacity, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+        Animated.timing(toastTranslateY, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        })
+      ]).start(() => {
+        // Reduced duration: show for 1.3 seconds
+        setTimeout(() => {
+          // Fade Out + Slide Down
+          Animated.parallel([
+            Animated.timing(toastOpacity, {
+              toValue: 0,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(toastTranslateY, {
+              toValue: 8,
+              duration: 150,
+              useNativeDriver: true,
+            })
+          ]).start(() => {
+            setActiveToastText(null);
+          });
+        }, 1300);
+      });
+    }
+  }, [toastMessage]);
 
   // ─── Gamification Modal ───
   const [gamificationModal, setGamificationModal] = useState<string | null>(null);
@@ -1208,13 +2534,36 @@ export default function HomeScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setSearchMode(mode);
 
-    Animated.parallel([
-      Animated.sequence([
-        Animated.timing(searchCapsuleScale, { toValue: 1.03, duration: 120, useNativeDriver: true }),
-        Animated.timing(searchCapsuleScale, { toValue: 1.0, duration: 180, useNativeDriver: true }),
+    // Subtle press down → smooth fade out — no bounce, no overshoot
+    Animated.sequence([
+      // Gentle press: barely visible scale-down
+      Animated.timing(searchCapsuleScale, {
+        toValue: 0.97,
+        duration: 80,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+      // Simultaneously: restore scale + home screen fades out smoothly
+      Animated.parallel([
+        Animated.timing(searchCapsuleScale, {
+          toValue: 1.0,
+          duration: 200,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(homeExitOpacity, {
+          toValue: 0,
+          duration: 240,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(homeExitTranslateY, {
+          toValue: -18,
+          duration: 240,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
       ]),
-      Animated.timing(homeExitOpacity, { toValue: 0.15, duration: 320, easing: Easing.out(Easing.exp), useNativeDriver: true }),
-      Animated.timing(homeExitTranslateY, { toValue: 20, duration: 320, easing: Easing.out(Easing.exp), useNativeDriver: true }),
     ]).start(() => {
       setSearchModalVisible(true);
     });
@@ -1222,23 +2571,44 @@ export default function HomeScreen() {
 
   const handleCloseSearchModal = () => {
     setSearchModalVisible(false);
+    searchCapsuleScale.setValue(1);
     Animated.parallel([
-      Animated.timing(homeExitOpacity, { toValue: 1, duration: 280, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-      Animated.timing(homeExitTranslateY, { toValue: 0, duration: 280, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(homeExitOpacity, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(homeExitTranslateY, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
     ]).start();
   };
 
   const openQuickAdd = (product: QuickAddProduct) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setSelectedQuickAdd(product);
-    setQuickAddVisible(true);
+    router.push({
+      pathname: '/product/[id]',
+      params: { id: product.id }
+    } as any);
   };
 
   const handleAddToCart = (product: any, size = 'M', color = 'Standard', qty = 1) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     triggerCartBadgeSpring();
-    setToastMessage(`Added ${qty}x ${product.title || product.name} to Cart! 🛍️`);
-    setTimeout(() => setToastMessage(null), 3500);
+
+    const pId = String(product.id || product.productId || '');
+    const pTitle = String(product.title || product.name || 'EasyBuy Product');
+    const pPrice = product.priceFormatted || (typeof product.price === 'number' ? `₹${product.price}` : String(product.price || ''));
+    const pOrigPrice = product.originalPriceFormatted || (typeof product.originalPrice === 'number' ? `₹${product.originalPrice}` : String(product.originalPrice || ''));
+    const pImg = product.image || product.thumbnail || (product.images && product.images[0]) || '';
+
+    for (let i = 0; i < qty; i++) {
+      addToCart({
+        id: pId,
+        title: pTitle,
+        price: pPrice,
+        originalPrice: pOrigPrice,
+        image: pImg,
+        selectedVariant: `${size} / ${color}`,
+      });
+    }
+
+    setToastMessage('Added to Cart');
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   // ─── LIVING BACKGROUND AMBIENT SYSTEM ───
@@ -1302,6 +2672,359 @@ export default function HomeScreen() {
     ).start();
   }, []);
 
+        // ─── CATEGORY TABS ───
+  const CATEGORY_TABS = [
+    { id: 'all', label: 'All' },
+    { id: 'fashion', label: 'Fashion' },
+    { id: 'electronics', label: 'Electronics' },
+    { id: 'sports', label: 'Sports' },
+    { id: 'grocery', label: 'Grocery' },
+    { id: 'home', label: 'Home' },
+    { id: 'beauty', label: 'Beauty' },
+  ];
+  const [activeCategoryTab, setActiveCategoryTab] = useState('all');
+
+  // ─── SECTION TABS (Hottest / Popular / New / Offers) ───
+  const SECTION_TABS = [
+    { id: 'hot', label: 'Hottest' },
+    { id: 'popular', label: 'Popular' },
+    { id: 'new', label: 'New' },
+    { id: 'offers', label: 'Offers' },
+  ];
+  const [activeSectionTab, setActiveSectionTab] = useState('hot');
+
+  // Helper to get products by section tab
+  const getTabProducts = () => {
+    switch (activeSectionTab) {
+      case 'hot': return RECOMMENDED_PRODUCTS.slice(0, 6);
+      case 'popular': return RECOMMENDED_PRODUCTS.slice(2, 8);
+      case 'new': return stateRecommendedProducts.slice(0, 6);
+      case 'offers': return RECOMMENDED_PRODUCTS.filter((p: any) => p.discount).slice(0, 6);
+      default: return RECOMMENDED_PRODUCTS.slice(0, 6);
+    }
+  };
+
+  
+  // Real Firebase & Catalog products for Everyday Staples (STRICTLY EXCLUDES QuickBuy Express items like Potatoes, Strawberries, Milk, Eggs, Bread, Atta)
+  const realStaplesProducts = useMemo(() => {
+    const source = stateProducts.length >= 4 ? stateProducts : catalog;
+    if (!source || source.length === 0) return [];
+    
+    // Strict blacklist for express/quickbuy items (raw produce, daily dairy, quick snacks)
+    const isExpressItem = (p: any) => {
+      const cat = (p.categoryId || '').toLowerCase();
+      if (cat === 'quickbuy') return true;
+      
+      const name = (p.name || p.title || '').toLowerCase();
+      const forbidden = [
+        'potato', 'strawberr', 'milk', 'egg', 'bread', 'atta', 'flour', 'curd',
+        'dahi', 'paneer', 'butter', 'onion', 'tomato', 'banana', 'apple',
+        'chip', 'biscuit', 'noodle', 'maggi', 'soda', 'coke', 'pepsi', 'ice cream',
+        'chocolate', 'quickbuy', 'fresh organic seasonal', 'fresh organic'
+      ];
+      return forbidden.some((kw) => name.includes(kw));
+    };
+
+    const staples = source.filter((p: any) => {
+      if (isExpressItem(p)) return false; // Strictly NO express quickbuy items!
+      
+      const cat = (p.categoryId || '').toLowerCase();
+      const name = (p.name || p.title || '').toLowerCase();
+
+      // Match genuine non-express pantry staples & regional specialties
+      return (
+        cat === 'kitchen' ||
+        cat === 'health_care' ||
+        cat === 'lifestyle' ||
+        name.includes('makhana') ||
+        name.includes('sattu') ||
+        name.includes('honey') ||
+        name.includes('tea') ||
+        name.includes('coffee') ||
+        name.includes('oat') ||
+        name.includes('oil') ||
+        name.includes('almond') ||
+        name.includes('nut') ||
+        name.includes('dry fruit') ||
+        name.includes('spice') ||
+        name.includes('ghee') ||
+        name.includes('granola') ||
+        name.includes('juice') ||
+        (cat === 'grocery' && !isExpressItem(p))
+      );
+    });
+
+    const finalPool = staples.filter((p: any) => !isExpressItem(p));
+    return finalPool.slice(0, 12).map((prod: any) => {
+      const title = prod.name || prod.title || 'Staple Product';
+      const catName = prod.categoryName
+        ? prod.categoryName.toUpperCase()
+        : (prod.categoryId ? prod.categoryId.toUpperCase().replace('_', ' ') : 'PANTRY');
+      return {
+        id: prod.id,
+        title,
+        price: typeof prod.price === 'number' ? `₹${prod.price}` : (prod.price || '₹199'),
+        image: prod.thumbnail || prod.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+        tag: catName,
+        raw: prod,
+      };
+    });
+  }, [stateProducts]);
+
+  // Dynamic Curated Bundle rotation based on Day of Week & Time of Day
+  const dynamicCuratedBundle: CuratedBundleInfo & { avatar1: string; avatar2: string; badge: string } = useMemo(() => {
+    const now = new Date();
+    const day = now.getDay(); // 0 = Sun, 5 = Fri, 6 = Sat
+    const hour = now.getHours(); // 0 - 23
+
+    const isWeekend = day === 0 || day === 5 || day === 6;
+    const isLateNight = hour >= 21 || hour < 5;
+    const isMorning = hour >= 5 && hour < 12;
+
+    if (isLateNight) {
+      return {
+        tag: 'LATE NIGHT SPECIAL',
+        title: 'Late-Night Craving & Calm Kit',
+        subtitle: 'Gourmet snacks, soothing herbal sips & midnight artisanal treats.',
+        price: '₹349',
+        oldPrice: '₹499',
+        avatar1: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=200&auto=format&fit=crop&q=80',
+        avatar2: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=200&auto=format&fit=crop&q=80',
+        badge: '+3',
+        items: [
+          {
+            id: 'ln-1',
+            title: 'Nissin Master Chef Spicy Garlic Ramen',
+            price: '₹149',
+            priceNum: 149,
+            originalPrice: '₹199',
+            image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=500&auto=format&fit=crop&q=80',
+            category: 'LATE NIGHT SNACK',
+          },
+          {
+            id: 'ln-2',
+            title: '85% Artisanal Dark Belgian Chocolate Bar',
+            price: '₹249',
+            priceNum: 249,
+            originalPrice: '₹320',
+            image: 'https://images.unsplash.com/photo-1548907040-4baa42d10919?w=500&auto=format&fit=crop&q=80',
+            category: 'SWEET CRAVING',
+          },
+          {
+            id: 'ln-3',
+            title: 'Organic Chamomile & Lavender Night Brew Tea',
+            price: '₹299',
+            priceNum: 299,
+            originalPrice: '₹399',
+            image: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=500&auto=format&fit=crop&q=80',
+            category: 'CALM BREW',
+          },
+          {
+            id: 'ln-4',
+            title: 'Midnight Roast Espresso Instant Coffee Jar',
+            price: '₹199',
+            priceNum: 199,
+            originalPrice: '₹275',
+            image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500&auto=format&fit=crop&q=80',
+            category: 'BEVERAGE',
+          },
+          {
+            id: 'ln-5',
+            title: 'Stainless Steel Rapid Auto Electric Kettle (0.8L)',
+            price: '₹899',
+            priceNum: 899,
+            originalPrice: '₹1299',
+            image: 'https://images.unsplash.com/photo-1585837575652-267c041d77d4?w=500&auto=format&fit=crop&q=80',
+            category: 'NIGHT APPLIANCE',
+          },
+        ],
+      };
+    }
+
+    if (isWeekend) {
+      return {
+        tag: 'CURATED BUNDLE',
+        title: 'The Weekender Survival Kit',
+        subtitle: 'Everything you need to survive the weekend, curated in one tap.',
+        price: '₹499',
+        oldPrice: '₹699',
+        avatar1: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=200&auto=format&fit=crop&q=80',
+        avatar2: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=200&auto=format&fit=crop&q=80',
+        badge: '+3',
+        items: [
+          {
+            id: 'wk-1',
+            title: 'Hand-Cooked Sea Salt & Truffle Potato Chips',
+            price: '₹120',
+            priceNum: 120,
+            originalPrice: '₹160',
+            image: 'https://images.unsplash.com/photo-1566478989037-eec170784d07?w=500&auto=format&fit=crop&q=80',
+            category: 'PARTY SNACK',
+          },
+          {
+            id: 'wk-2',
+            title: 'Sparkling Nitro Cold Brew Coffee (4 Pack)',
+            price: '₹399',
+            priceNum: 399,
+            originalPrice: '₹520',
+            image: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500&auto=format&fit=crop&q=80',
+            category: 'BEVERAGE',
+          },
+          {
+            id: 'wk-3',
+            title: 'Gourmet Italian Four-Cheese Instant Mac',
+            price: '₹180',
+            priceNum: 180,
+            originalPrice: '₹240',
+            image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=500&auto=format&fit=crop&q=80',
+            category: 'QUICK MEAL',
+          },
+          {
+            id: 'wk-4',
+            title: 'Swiss Roasted Hazelnut Milk Chocolate',
+            price: '₹299',
+            priceNum: 299,
+            originalPrice: '₹380',
+            image: 'https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=500&auto=format&fit=crop&q=80',
+            category: 'CHOCOLATE',
+          },
+          {
+            id: 'wk-5',
+            title: 'Roasted Salted Cashew & Trail Mix Tub',
+            price: '₹349',
+            priceNum: 349,
+            originalPrice: '₹450',
+            image: 'https://images.unsplash.com/photo-1536591375315-1b8626993134?w=500&auto=format&fit=crop&q=80',
+            category: 'NUTS & CRUNCH',
+          },
+        ],
+      };
+    }
+
+    if (isMorning) {
+      return {
+        tag: 'MORNING ESSENTIALS',
+        title: 'Rise & Shine Breakfast Kit',
+        subtitle: 'Start your day right with fresh organic teas, oats & raw mountain honey.',
+        price: '₹399',
+        oldPrice: '₹549',
+        avatar1: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=200&auto=format&fit=crop&q=80',
+        avatar2: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=200&auto=format&fit=crop&q=80',
+        badge: '+3',
+        items: [
+          {
+            id: 'bk-1',
+            title: 'Whole Rolled Organic Oats (1kg Jar)',
+            price: '₹299',
+            priceNum: 299,
+            originalPrice: '₹399',
+            image: 'https://images.unsplash.com/photo-1517093728432-a0440f8d45af?w=500&auto=format&fit=crop&q=80',
+            category: 'BREAKFAST',
+          },
+          {
+            id: 'bk-2',
+            title: 'Pure Himalayan Wildflower Raw Honey (500g)',
+            price: '₹349',
+            priceNum: 349,
+            originalPrice: '₹450',
+            image: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=500&auto=format&fit=crop&q=80',
+            category: 'PANTRY',
+          },
+          {
+            id: 'bk-3',
+            title: 'Premium Single-Estate Assam Golden Leaf Tea',
+            price: '₹249',
+            priceNum: 249,
+            originalPrice: '₹325',
+            image: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=500&auto=format&fit=crop&q=80',
+            category: 'TEA & BREW',
+          },
+          {
+            id: 'bk-4',
+            title: 'California Sun-Dried Raw Almonds (250g)',
+            price: '₹399',
+            priceNum: 399,
+            originalPrice: '₹499',
+            image: 'https://images.unsplash.com/photo-1508061252966-f7ac25ab2655?w=500&auto=format&fit=crop&q=80',
+            category: 'HEALTHY NUTS',
+          },
+          {
+            id: 'bk-5',
+            title: 'Artisanal Organic Mixed Berry Breakfast Jam',
+            price: '₹199',
+            priceNum: 199,
+            originalPrice: '₹275',
+            image: 'https://images.unsplash.com/photo-1568571780765-9276ac8b75a2?w=500&auto=format&fit=crop&q=80',
+            category: 'SPREADS',
+          },
+        ],
+      };
+    }
+
+    // Midweek Afternoon/Evening
+    return {
+      tag: 'MIDWEEK PANTRY KIT',
+      title: 'Monsoon Artisanal Pantry Kit',
+      subtitle: 'Handpicked makhana, artisanal dark roast & gourmet health bites.',
+      price: '₹449',
+      oldPrice: '₹599',
+      avatar1: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=200&auto=format&fit=crop&q=80',
+      avatar2: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=200&auto=format&fit=crop&q=80',
+      badge: '+3',
+      items: [
+        {
+          id: 'mp-1',
+          title: 'Slow-Roasted Himalayan Peri Peri Makhana',
+          price: '₹180',
+          priceNum: 180,
+          originalPrice: '₹240',
+          image: 'https://images.unsplash.com/photo-1599490659213-e2b9527bd087?w=500&auto=format&fit=crop&q=80',
+          category: 'GULP & SNACK',
+        },
+        {
+          id: 'mp-2',
+          title: 'Cold Pressed Extra Virgin Olive Oil (500ml)',
+          price: '₹699',
+          priceNum: 699,
+          originalPrice: '₹899',
+          image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=500&auto=format&fit=crop&q=80',
+          category: 'COOKING OIL',
+        },
+        {
+          id: 'mp-3',
+          title: 'Organic Roasted Chana Sattu Flour (1kg)',
+          price: '₹160',
+          priceNum: 160,
+          originalPrice: '₹210',
+          image: 'https://images.unsplash.com/photo-1627485937980-221c88ab04f9?w=500&auto=format&fit=crop&q=80',
+          category: 'SUPERFOOD',
+        },
+        {
+          id: 'mp-4',
+          title: 'Pure Himalayan Pink Rock Salt Jar (1kg)',
+          price: '₹120',
+          priceNum: 120,
+          originalPrice: '₹170',
+          image: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80',
+          category: 'ESSENTIAL SPICE',
+        },
+        {
+          id: 'mp-5',
+          title: 'Dark Roast Single-Origin Chikmagalur Beans',
+          price: '₹450',
+          priceNum: 450,
+          originalPrice: '₹590',
+          image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500&auto=format&fit=crop&q=80',
+          category: 'GOURMET COFFEE',
+        },
+      ],
+    };
+  }, []);
+
+  const dynamicEditorial = useMemo(() => {
+    return getDynamicEditorialSection(locationSensitiveData.cityName, locationSensitiveData.products);
+  }, [locationSensitiveData.cityName, locationSensitiveData.products]);
+
   return (
     <SpatialDrawerWrapper
       ref={spatialDrawerRef}
@@ -1318,1000 +3041,998 @@ export default function HomeScreen() {
         } else if (itemId === 'locations') {
           openLocationModal();
         } else if (itemId === 'gift_ideas') {
-          setToastMessage('🎁 Gift Ideas Store Coming Soon!');
+          setToastMessage('🎁 Gift Ideas Coming Soon!');
           setTimeout(() => setToastMessage(null), 3500);
         } else if (itemId === 'help' || itemId === 'profile') {
           router.push('/profile' as any);
         } else if (itemId === 'logout') {
-          auth.signOut().catch(() => {});
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+          (async () => {
+            try {
+              await auth.signOut();
+              await AsyncStorage.removeItem('isAdmin').catch(() => {});
+              router.replace('/login' as any);
+            } catch (e) {
+              console.log('Logout error:', e);
+            }
+          })();
         }
       }}
     >
       <SafeAreaView style={[styles.container, isDarkMode && styles.containerDark]}>
-      <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+        <StatusBar style={isDarkMode ? 'light' : 'dark'} />
 
-      {/* ─── LIVING AMBIENT BACKGROUND GLOW BLOBS (BARELY NOTICEABLE & CLIPPED) ─── */}
-      <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden' }]} pointerEvents="none">
-        {/* Glow 1: Soft Warm Gold / Ivory Glow (Top Area) */}
-        <Animated.View
-          style={[
-            styles.ambientBlob,
-            {
-              top: '4%',
-              left: -30,
-              width: 220,
-              height: 220,
-              borderRadius: 110,
-              backgroundColor: isDarkMode ? 'rgba(124, 58, 237, 0.05)' : 'rgba(254, 243, 199, 0.35)',
-              opacity: ambientGlowAnim1.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.25] }),
-              transform: [
-                { scale: ambientGlowAnim1.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1.08] }) },
-                { translateY: ambientGlowAnim1.interpolate({ inputRange: [0, 1], outputRange: [0, 10] }) },
-              ],
-            },
-          ]}
-        />
-
-        {/* Glow 2: Barely Noticeable Lavender Glow (Discovery Area) */}
-        <Animated.View
-          style={[
-            styles.ambientBlob,
-            {
-              top: '38%',
-              right: -40,
-              width: 260,
-              height: 260,
-              borderRadius: 130,
-              backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.06)' : 'rgba(243, 232, 255, 0.3)',
-              opacity: ambientGlowAnim2.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.22] }),
-              transform: [
-                { scale: ambientGlowAnim2.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.08] }) },
-                { translateY: ambientGlowAnim2.interpolate({ inputRange: [0, 1], outputRange: [0, -15] }) },
-              ],
-            },
-          ]}
-        />
-
-        {/* Glow 3: Barely Noticeable Soft Mint Glow (QuickBuy / Deals Area) */}
-        <Animated.View
-          style={[
-            styles.ambientBlob,
-            {
-              top: '68%',
-              left: -40,
-              width: 280,
-              height: 280,
-              borderRadius: 140,
-              backgroundColor: isDarkMode ? 'rgba(16, 185, 129, 0.06)' : 'rgba(224, 242, 254, 0.3)',
-              opacity: ambientGlowAnim3.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.22] }),
-              transform: [
-                { scale: ambientGlowAnim3.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.08] }) },
-              ],
-            },
-          ]}
-        />
-      </View>
-
-      <Reanimated.ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        scrollEventThrottle={16}
-        onScroll={scrollHandler}
-      >
-
-        {/* ─── 1. TOP HEADER & DYNAMIC GREETING CARD ─── */}
-        <Animated.View
-          style={[
-            styles.glassGreetingCard,
-            isDarkMode && styles.glassGreetingDark,
-            {
-              opacity: headerEntranceOpacity,
-              transform: [{ translateY: headerEntranceTranslateY }],
-            },
-          ]}
-        >
-          <View style={styles.greetingTopRow}>
-            {/* Spatial Slide Menu Hamburger Icon with Tactile Press Response */}
-            <TouchableOpacity
-              style={[styles.headerIconBtn, { marginRight: 10 }, isDarkMode && { backgroundColor: '#1E293B', borderColor: '#334155' }]}
-              onPress={handleMenuBtnPress}
-              activeOpacity={0.8}
-            >
-              <Animated.View style={{ transform: [{ scale: menuBtnScale }] }}>
-                <Ionicons name="menu-outline" size={22} color={isDarkMode ? '#F8FAFC' : THEME.PRIMARY} />
-              </Animated.View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.greetingTextCol}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                loadFreshGreeting();
-              }}
-              activeOpacity={0.85}
-            >
-              <View>
-                <Text
-                  style={[
-                    styles.userText,
-                    {
-                      fontSize: greetingText.length > 26 ? (width >= 400 ? 22 : 20) : (width >= 400 ? 26 : 24),
-                      lineHeight: greetingText.length > 26 ? (width >= 400 ? 28 : 25) : (width >= 400 ? 32 : 30),
-                    },
-                    isDarkMode && { color: '#F8FAFC' },
-                  ]}
-                  numberOfLines={2}
-                  ellipsizeMode="tail"
-                >
-                  {greetingText}
-                </Text>
-                <Reanimated.Text
-                  style={[styles.subGreeting, isDarkMode && { color: '#94A3B8' }, reanimatedHeaderSubStyle]}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {subtitleText}
-                </Reanimated.Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Header Right Actions */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <AnimatedThemeToggle isDarkMode={isDarkMode} onToggle={toggleDarkMode} />
-
-              <TouchableOpacity
-                style={[styles.headerIconBtn, isDarkMode && { backgroundColor: '#1E293B', borderColor: '#334155' }]}
-                onPress={openWishlist}
-                activeOpacity={0.8}
-              >
-                <Animated.View style={{ transform: [{ scale: heartSpringScale }] }}>
-                  <Ionicons name="heart-outline" size={18} color={isDarkMode ? '#F8FAFC' : THEME.PRIMARY} />
-                </Animated.View>
-                {totalWishlistItems > 0 && (
-                  <View style={styles.headerBadge}>
-                    <Text style={styles.headerBadgeTxt}>{totalWishlistItems}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.headerIconBtn, isDarkMode && { backgroundColor: '#1E293B', borderColor: '#334155' }]}
-                onPress={openCart}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="cart-outline" size={18} color={isDarkMode ? '#F8FAFC' : THEME.PRIMARY} />
-                {totalItems > 0 && (
-                  <Animated.View
-                    style={[
-                      styles.headerBadge,
-                      {
-                        backgroundColor: '#7C3AED',
-                        transform: [{ scale: cartBadgeSpringScale }],
-                      },
-                    ]}
-                  >
-                    <Text style={styles.headerBadgeTxt}>{totalItems}</Text>
-                  </Animated.View>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* SLEEK DELIVERING TO CARD */}
-          <TouchableOpacity
-            style={[styles.deliveringCard, isDarkMode && styles.deliveringCardDark, { marginTop: 4 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-              openLocationModal();
-            }}
-            activeOpacity={0.85}
-          >
-            <Animated.View
-              style={[
-                styles.deliveringIconBg,
-                isDarkMode && styles.deliveringIconBgDark,
-                { transform: [{ scale: locationPinPulseScale }] },
-              ]}
-            >
-              <Ionicons name="location-sharp" size={13} color="#22C55E" />
-            </Animated.View>
-
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#16A34A' }}>Delivering to</Text>
-              <Text style={[styles.deliveringTitle, isDarkMode && { color: '#FFFFFF' }]} numberOfLines={1}>
-                {selectedAddress && selectedAddress.locality && selectedAddress.state
-                  ? `${selectedAddress.locality}, ${selectedAddress.state}`
-                  : selectedAddress && selectedAddress.city && selectedAddress.state
-                  ? `${selectedAddress.city}, ${selectedAddress.state}`
-                  : `${selectedStateName || 'Selected Location'}`}
-              </Text>
-              <Ionicons name="chevron-down" size={12} color={isDarkMode ? '#A855F7' : '#16A34A'} />
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* ─── 2. FLOATING ROUNDED SEARCH CAPSULE ─── */}
-        <Reanimated.View style={reanimatedSearchCapsuleStyle}>
-          <Animated.View
-            style={{
-              opacity: searchEntranceOpacity,
-              transform: [{ scale: Animated.multiply(searchCapsuleScale, searchEntranceScale) }],
-            }}
-          >
-          <TouchableOpacity
-            style={[styles.searchCapsule, isDarkMode && styles.searchCapsuleDark]}
-            onPress={() => openSearch('text')}
-            activeOpacity={0.9}
-          >
-            <Ionicons name="search" size={20} color={isDarkMode ? '#94A3B8' : THEME.PRIMARY} />
-
-            <View style={styles.tickerContainer}>
-              <Animated.Text
-                style={[
-                  styles.searchInputText,
-                  {
-                    color: isDarkMode ? '#94A3B8' : '#64748B',
-                    opacity: tickerFadeAnim,
-                    transform: [{ translateY: tickerTranslateY }],
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {SEARCH_TICKERS[tickerIndex]}
-              </Animated.Text>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.searchActionBtn, { backgroundColor: THEME.PURPLE + '18', borderRadius: 8 }]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                setVoiceBuyVisible(true);
-              }}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="mic" size={18} color={THEME.PURPLE} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.searchActionBtn} onPress={() => openSearch('camera')} activeOpacity={0.75}>
-              <Ionicons name="camera-outline" size={18} color={THEME.SKY_BLUE} />
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Animated.View>
-      </Reanimated.View>
-
-        {/* ─── 2.5 AI SMART FEED (TIME-AWARE PERSONALISATION) ─── */}
-        <Animated.View
-          style={{
-            opacity: aiFeedEntranceOpacity,
-            transform: [{ scale: aiFeedEntranceScale }],
-          }}
-        >
-          <AISmartFeed
-            stateName={selectedAddress?.state || selectedStateName}
-            isDarkMode={isDarkMode}
-            onKeywordPress={(kw) => {
-              setSearchMode('text');
-              setSearchModalVisible(true);
-            }}
-          />
-        </Animated.View>
-
-        <Reanimated.View style={reanimatedQuickBuyStyle}>
-          <Animated.View
-            style={{
-              opacity: quickBuyEntranceOpacity,
-              transform: [{ translateY: quickBuyEntranceTranslateY }],
-            }}
-          >
-            <QuickBuySection
-              items={QUICKBUY_GRID_ITEMS}
-              isDarkMode={isDarkMode}
-              onSeeAll={handleQuickBuyTransition}
-              onSelectItem={(item) => {
-                openQuickAdd({
-                  id: item.id,
-                  title: item.name,
-                  price: '₹66',
-                  image: item.image || '',
-                });
-              }}
-            />
-          </Animated.View>
-        </Reanimated.View>
-
-        {/* ─── 4. CATEGORY BADGES (4 CLEAN CARDS) ─── */}
-        <View style={styles.categoryBadgesGrid}>
-          {MOOD_CHIPS.map((chip) => (
-            <ZoomCard
-              key={chip.id}
-              style={[styles.categoryBadgeCard, isDarkMode && styles.categoryBadgeCardDark]}
-              onPress={() => {
-                Haptics.selectionAsync().catch(() => {});
-                if (chip.id === 'explore_all') {
-                  router.push('/all-items' as any);
-                } else if (chip.id === 'quickbuy') {
-                  router.push('/quickbuy' as any);
-                } else if (chip.id === 'regional') {
-                  router.push('/regional-spices' as any);
-                } else if (chip.id === 'offers') {
-                  router.push('/offers' as any);
-                }
-              }}
-            >
-              <View style={[styles.categoryBadgeIconBg, { backgroundColor: chip.iconBg }]}>
-                <Ionicons name={chip.icon as any} size={15} color={chip.iconColor} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.categoryBadgeTitle, isDarkMode && { color: '#F8FAFC' }]} numberOfLines={1}>{chip.label}</Text>
-                <Text style={[styles.categoryBadgeSub, isDarkMode && { color: '#94A3B8' }]} numberOfLines={1}>{chip.sub}</Text>
-              </View>
-            </ZoomCard>
-          ))}
-        </View>
-
-        {/* ─── 5. DYNAMIC SMART TRENDING SLIDABLE HERO BANNERS 🔥 (GEN-Z EDITORIAL) ─── */}
-        {isBannerLoading ? (
-          <View style={styles.heroSection}>
-            <Animated.View style={[styles.heroSkeletonCard, isDarkMode && styles.heroSkeletonCardDark, { opacity: skeletonPulseAnim }]}>
-              <View style={styles.heroSkeletonContent}>
-                <View style={styles.heroSkeletonTag} />
-                <View style={styles.heroSkeletonTitle} />
-                <View style={styles.heroSkeletonSub} />
-                <View style={styles.heroSkeletonBtn} />
-              </View>
-              <View style={styles.heroSkeletonImg} />
-            </Animated.View>
-          </View>
-        ) : (
-          trendingBanners && trendingBanners.length > 0 && (
-            <Reanimated.View style={reanimatedHeroParallaxStyle}>
-              <EditorialPromotionalBanner
-                banners={trendingBanners as any}
-                isDarkMode={isDarkMode}
-                onPressBanner={(banner) => {
-                  router.push({ pathname: '/collection/[id]', params: { id: banner.collectionId || 'regional_delights' } } as any);
-                }}
-                onPressCTA={(banner) => {
-                  if (banner.featuredProduct) {
-                    openQuickAdd({
-                      id: banner.featuredProduct.id,
-                      title: banner.featuredProduct.title,
-                      price: banner.featuredProduct.price,
-                      image: banner.featuredProduct.image || banner.image,
-                    });
-                  } else {
-                    router.push({ pathname: '/collection/[id]', params: { id: banner.collectionId || 'regional_delights' } } as any);
-                  }
-                }}
+                {/* ─── TOP HEADER BAR ─── */}
+        <Animated.View style={[styles.newHeader, isDarkMode && styles.newHeaderDark, { opacity: headerEntranceOpacity }]} pointerEvents="box-none">
+          <TouchableOpacity onPress={handleMenuBtnPress} activeOpacity={0.7} style={{ padding: 4 }}>
+            <Animated.View style={{ transform: [{ scale: menuBtnScale }] }}>
+              <Ionicons
+                name="reorder-two-outline"
+                size={34}
+                color={isHeaderIconDark && !isDarkMode ? '#0F172A' : '#FFFFFF'}
               />
+            </Animated.View>
+          </TouchableOpacity>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', position: 'relative', height: 44, justifyContent: 'flex-end' }} pointerEvents="box-none">
+            {/* 1. Floating Cart Icon (Active at top hero point) */}
+            <Reanimated.View style={[cartHeaderAnimStyle, { position: 'absolute', right: 0 }]}>
+              <TouchableOpacity style={[styles.newCartBtn, isDarkMode && styles.newCartBtnDark]} onPress={() => router.push('/cart' as any)} activeOpacity={0.75}>
+                <View style={styles.newCartIconContainer}>
+                  <Ionicons name="bag-handle-outline" size={22} color="#FFFFFF" />
+                  {totalItems > 0 && (
+                    <View style={[styles.newCartBadge, isDarkMode && styles.newCartBadgeDark]}>
+                      <Text style={styles.newCartBadgeTxt}>{totalItems}</Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
             </Reanimated.View>
-          )
-        )}
 
-        {/* ==================================================
-            DISCOVERY COMMERCE FEED (GEN-Z EDITORIAL)
-            ================================================== */}
+            {/* 2. Explore Header Pill Button (Minimal single-line 'Explore') */}
+            <Reanimated.View style={[exploreHeaderAnimStyle, { position: 'absolute', right: 0 }]}>
+              <TouchableOpacity
+                style={styles.headerExploreMoreBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  router.push('/all-items');
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="compass-outline" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={styles.headerExploreMoreText} numberOfLines={1}>Explore</Text>
+              </TouchableOpacity>
+            </Reanimated.View>
+          </View>
+        </Animated.View>
 
+        <ScrollContext.Provider value={reanimatedScrollY}>
+          <Reanimated.ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.refScrollContent}
+            scrollEventThrottle={16}
+            onScroll={scrollHandler}
+          >
+            {/* ─── HERO BANNER IMAGE BACKGROUND ─── */}
+            <ImageBackground
+              source={{ uri: activeHeroBg.uri }}
+              style={styles.heroBannerBackground}
+              resizeMode="cover"
+            >
+              <View style={styles.heroBannerOverlay}>
+                {/* Space to push greeting content below the absolute header */}
+                <View style={{ height: 105 }} />
 
-        {/* ─── 2. SHOP BY VIBE ✨ (LUXURIOUS 3D PARALLAX & SNAP CAROUSEL) ─── */}
-        <Reanimated.View style={reanimatedVibeStyle}>
-          <View style={[styles.discoveryHeader, { marginTop: 24 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={[styles.discoveryTitle, isDarkMode && { color: '#F8FAFC' }]}>Shop by Vibe ✨</Text>
-            {/* Animated Pagination Pill Dots */}
-            <View style={styles.vibeDotsRow}>
-              {VIBE_CARDS.map((_, dotIdx) => {
-                const snapInterval = 232;
-                const dotInputRange = [
-                  (dotIdx - 1) * snapInterval,
-                  dotIdx * snapInterval,
-                  (dotIdx + 1) * snapInterval,
-                ];
-                const dotScaleX = vibeScrollX.interpolate({
-                  inputRange: dotInputRange,
-                  outputRange: [1, 3, 1],
-                  extrapolate: 'clamp',
-                });
-                const dotOpacity = vibeScrollX.interpolate({
-                  inputRange: dotInputRange,
-                  outputRange: [0.35, 1, 0.35],
-                  extrapolate: 'clamp',
-                });
+                {/* ─── GREETING ─── */}
+                <Animated.View style={{ opacity: headerEntranceOpacity, transform: [{ translateY: headerEntranceTranslateY }] }}>
+                  <View style={styles.refGreetingBlockHero}>
+                    <Text style={styles.refGreetQuestionHero}>
+                      {greetingText}
+                    </Text>
+                  </View>
+                </Animated.View>
+
+                {/* ─── SEARCH BAR ─── */}
+                <Reanimated.View style={reanimatedSearchCapsuleStyle}>
+                  <Animated.View style={{ opacity: searchEntranceOpacity, transform: [{ scale: searchEntranceScale }] }}>
+                    <Animated.View style={{ transform: [{ scale: searchCapsuleScale }] }}>
+                      <View style={styles.translucentSearchCapsule}>
+                        <TouchableOpacity
+                          style={styles.iosSearchLeft}
+                          onPress={() => openSearch('text')}
+                          activeOpacity={1}
+                        >
+                          <Ionicons name="search-outline" size={20} color="#FFFFFF" />
+                          <Text style={styles.translucentSearchPlaceholder} numberOfLines={1}>
+                            Search products, recipes, essentials...
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* 🎙️ Voice Recipe & Cart AI Mic Button */}
+                        <TouchableOpacity
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 6,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                          }}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                            setVoiceBuyVisible(true);
+                          }}
+                          activeOpacity={0.75}
+                        >
+                          <Ionicons name="mic" size={20} color="#FFFFFF" />
+                        </TouchableOpacity>
+
+                        <View style={styles.translucentSearchDivider} />
+                        <TouchableOpacity
+                          style={styles.iosSearchFilterBtn}
+                          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); setFilterModalVisible(true); }}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="options-outline" size={20} color="#FFFFFF" />
+                        </TouchableOpacity>
+                      </View>
+                    </Animated.View>
+                  </Animated.View>
+                </Reanimated.View>
+
+                {/* ─── EXPLORE NOW BUTTON ─── */}
+                <Reanimated.View style={exploreBtnAnimStyle}>
+                  <TouchableOpacity
+                    style={styles.heroExploreBtn}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      router.push('/all-items');
+                    }}
+                  >
+                    <Text style={styles.heroExploreBtnText}>Explore Now</Text>
+                  </TouchableOpacity>
+                </Reanimated.View>
+              </View>
+            </ImageBackground>
+
+            {/* ─── DAILY RECOMMENDATIONS (Rotating Categories) ─── */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 20, marginBottom: 12 }}>
+              <Text style={{ fontSize: 21, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', fontWeight: '700', letterSpacing: -0.2, color: isDarkMode ? '#F8FAFC' : '#1C1917' }}>
+                Recommended Categories
+              </Text>
+              <TouchableOpacity onPress={() => router.push('/all-items')} activeOpacity={0.7}>
+                <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 1.2, color: isDarkMode ? '#94A3B8' : '#475569', textTransform: 'uppercase' }}>
+                  SEE ALL
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingLeft: 20, paddingRight: 8, gap: 14 }}
+              decelerationRate="fast"
+              snapToInterval={140 + 14}
+              snapToAlignment="start"
+            >
+              {recommendedCategories.map((item: any) => {
+                const meta = HOME_CATEGORY_VISUALS[item.id];
+                if (!meta) return null;
 
                 return (
-                  <Animated.View
-                    key={dotIdx}
-                    style={[
-                      styles.vibeDotPill,
-                      {
-                        transform: [{ scaleX: dotScaleX }],
-                        opacity: dotOpacity,
-                        backgroundColor: isDarkMode ? '#A855F7' : '#7C3AED',
-                      },
-                    ]}
-                  />
+                  <TouchableOpacity
+                    key={item.id}
+                    style={{
+                      width: 140,
+                      backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+                      borderRadius: 14,
+                      padding: 8,
+                      borderWidth: 1,
+                      borderColor: isDarkMode ? '#334155' : '#F1F5F9',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.04,
+                      shadowRadius: 6,
+                      elevation: 2,
+                    }}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      router.push({
+                        pathname: '/category-products',
+                        params: { categoryId: item.id }
+                      });
+                    }}
+                    activeOpacity={0.9}
+                  >
+                    {/* Rectangular Image Container with floating badge */}
+                    <View style={{ position: 'relative', width: '100%', height: 115, borderRadius: 10, overflow: 'hidden', backgroundColor: '#F8FAFC' }}>
+                      <Image
+                        source={{ uri: meta.image }}
+                        style={{ width: '100%', height: '100%', resizeMode: 'cover' }}
+                      />
+                      <View style={{
+                        position: 'absolute',
+                        top: 6,
+                        left: 6,
+                        backgroundColor: '#2F6E49',
+                        paddingHorizontal: 6,
+                        paddingVertical: 2.5,
+                        borderRadius: 6,
+                      }}>
+                        <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 }}>
+                          {item.badge}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Text Details */}
+                    <View style={{ paddingTop: 8, paddingHorizontal: 2 }}>
+                      {/* Category Name */}
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: isDarkMode ? '#F8FAFC' : '#1E293B' }} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      {/* Count Info */}
+                      <Text style={{ fontSize: 10.5, color: isDarkMode ? '#94A3B8' : '#64748B', marginTop: 3 }}>
+                        {meta.countText}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
                 );
               })}
-            </View>
-          </View>
-          <TouchableOpacity onPress={() => router.push('/all-items')} activeOpacity={0.7} style={styles.seeAllRow}>
-            <Text style={styles.gzSeeAllText}>See all</Text>
-            <Ionicons name="chevron-forward" size={13} color="#7C3AED" />
-          </TouchableOpacity>
-        </View>
+            </ScrollView>
 
-        <Animated.ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.vibeScroll}
-          decelerationRate="fast"
-          snapToInterval={232}
-          snapToAlignment="start"
-          scrollEventThrottle={16}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { x: vibeScrollX } } }],
-            { useNativeDriver: true }
-          )}
-        >
-          {VIBE_CARDS.map((vibe, index) => {
-            const snapInterval = 232;
-            const inputRange = [
-              (index - 1) * snapInterval,
-              index * snapInterval,
-              (index + 1) * snapInterval,
-            ];
-
-            const cardScale = vibeScrollX.interpolate({
-              inputRange,
-              outputRange: [0.93, 1.04, 0.93],
-              extrapolate: 'clamp',
-            });
-
-            const cardOpacity = vibeScrollX.interpolate({
-              inputRange,
-              outputRange: [0.82, 1, 0.82],
-              extrapolate: 'clamp',
-            });
-
-            const imgParallaxX = vibeScrollX.interpolate({
-              inputRange,
-              outputRange: [-12, 0, 12],
-              extrapolate: 'clamp',
-            });
-
-            return (
-              <Animated.View
-                key={vibe.id}
+            {/* ─── STICH AI CURATED BUNDLE BANNER (Pixel-Perfect Matching Uploaded Design) ─── */}
+            <TouchableOpacity
+              style={{
+                marginHorizontal: 20,
+                marginTop: 22,
+                marginBottom: 16,
+                borderRadius: 20,
+                padding: 20,
+                backgroundColor: isDarkMode ? '#1E293B' : '#EFECE6',
+                borderWidth: 1,
+                borderColor: isDarkMode ? '#334155' : '#E2DCD2',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: isDarkMode ? 0.2 : 0.06,
+                shadowRadius: 8,
+                elevation: 3,
+              }}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setCuratedBundleModalVisible(true);
+              }}
+              activeOpacity={0.92}
+            >
+              {/* UPPERCASE CATEGORY TAG */}
+              <Text
                 style={{
-                  opacity: cardOpacity,
-                  transform: [{ scale: cardScale }],
+                  fontSize: 11,
+                  fontWeight: '700',
+                  letterSpacing: 1.6,
+                  color: isDarkMode ? '#94A3B8' : '#78716C',
+                  textTransform: 'uppercase',
+                  marginBottom: 6,
                 }}
               >
-                <SpringCard
-                  style={styles.vibeCoverCard}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    router.push({ pathname: '/collection/[id]', params: { id: vibe.collectionId } } as any);
+                {dynamicCuratedBundle.tag}
+              </Text>
+
+              {/* SERIF HEADLINE */}
+              <Text
+                style={{
+                  fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+                  fontSize: 23,
+                  fontWeight: '700',
+                  color: isDarkMode ? '#F8FAFC' : '#1C1917',
+                  marginBottom: 6,
+                  lineHeight: 28,
+                }}
+              >
+                {dynamicCuratedBundle.title}
+              </Text>
+
+              {/* SUBTITLE */}
+              <Text
+                style={{
+                  fontSize: 13,
+                  lineHeight: 18,
+                  color: isDarkMode ? '#CBD5E1' : '#57534E',
+                  marginBottom: 16,
+                  maxWidth: '92%',
+                }}
+              >
+                {dynamicCuratedBundle.subtitle}
+              </Text>
+
+              {/* OVERLAPPING AVATARS (+3 BADGE) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    borderWidth: 2.5,
+                    borderColor: isDarkMode ? '#1E293B' : '#EFECE6',
+                    backgroundColor: '#FFFFFF',
+                    overflow: 'hidden',
+                    elevation: 2,
                   }}
                 >
-                  {/* Full-Bleed Cover Image */}
-                  <Animated.Image
-                    source={{ uri: vibe.image }}
-                    style={[
-                      styles.vibeCoverImg,
-                      {
-                        transform: [{ translateX: imgParallaxX }, { scale: 1.15 }],
-                      },
-                    ]}
-                    resizeMode="cover"
+                  <Image
+                    source={{ uri: dynamicCuratedBundle.avatar1 }}
+                    style={{ width: '100%', height: '100%', resizeMode: 'cover' }}
                   />
+                </View>
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    borderWidth: 2.5,
+                    borderColor: isDarkMode ? '#1E293B' : '#EFECE6',
+                    backgroundColor: '#FFFFFF',
+                    overflow: 'hidden',
+                    marginLeft: -12,
+                    elevation: 2,
+                  }}
+                >
+                  <Image
+                    source={{ uri: dynamicCuratedBundle.avatar2 }}
+                    style={{ width: '100%', height: '100%', resizeMode: 'cover' }}
+                  />
+                </View>
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    borderWidth: 2.5,
+                    borderColor: isDarkMode ? '#1E293B' : '#EFECE6',
+                    backgroundColor: isDarkMode ? '#334155' : '#E2DCD2',
+                    marginLeft: -12,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    elevation: 2,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: isDarkMode ? '#F8FAFC' : '#44403C' }}>
+                    {dynamicCuratedBundle.badge}
+                  </Text>
+                </View>
+              </View>
 
-                  {/* Dark Gradient Ambient Overlay */}
-                  <View style={styles.vibeCoverOverlay} />
+              {/* FOOTER: PRICE & ADD BUNDLE BUTTON */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: isDarkMode ? '#F8FAFC' : '#1C1917' }}>
+                    {dynamicCuratedBundle.price}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: isDarkMode ? '#94A3B8' : '#78716C', textDecorationLine: 'line-through' }}>
+                    {dynamicCuratedBundle.oldPrice}
+                  </Text>
+                </View>
 
-                  {/* Overlaid Content at Bottom */}
-                  <View style={styles.vibeCoverContent}>
-                    <View style={styles.vibeCoverHeaderRow}>
-                      <Text style={styles.vibeCoverTitle} numberOfLines={1}>{vibe.title}</Text>
-                      <Text style={styles.vibeCoverEmoji}>{vibe.emoji}</Text>
-                    </View>
-                    <Text style={styles.vibeCoverSub} numberOfLines={1}>{vibe.sub}</Text>
-                    <View style={styles.vibeCoverFooterRow}>
-                      <Text style={styles.vibeCoverAction}>Explore Vibe</Text>
-                      <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
-                    </View>
-                  </View>
-                </SpringCard>
-              </Animated.View>
-            );
-          })}
-        </Animated.ScrollView>
-        </Reanimated.View>
-
-        {/* ─── 3. REGIONAL FAVORITES / STATE SPECIAL SHOWCASE ─── */}
-        <TouchableOpacity
-          style={styles.stateHeritageHeroCard}
-          activeOpacity={0.92}
-          onPress={() => router.push({ pathname: '/collection/[id]', params: { id: 'regional_delights' } } as any)}
-        >
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1603006905003-be475563bc59?w=800&auto=format&fit=crop&q=80' }}
-            style={styles.stateHeritageImg}
-          />
-          <View style={styles.stateHeritageOverlay}>
-            <View style={styles.stateBadgePill}>
-              <Text style={styles.stateBadgeEmoji}>👑</Text>
-              <Text style={styles.stateBadgeText}>{(selectedAddress?.state || selectedStateName || 'Bihar').toUpperCase()} HERITAGE EDIT</Text>
-            </View>
-            <Text style={styles.stateHeritageTitle}>Authentic {selectedAddress?.state || selectedStateName || 'State'} Specialties</Text>
-            <Text style={styles.stateHeritageSub}>Direct from traditional local master artisans & regional farms</Text>
-            <View style={styles.stateHeritageCtaRow}>
-              <Text style={styles.stateHeritageCtaText}>Explore Collection →</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* ─── 4. TIME-AWARE DISCOVERY MODULE ─── */}
-        {(() => {
-          const timeSection = getTimeAwareSection();
-          return (
-            <Reanimated.View style={reanimatedTimeAwareStyle}>
-              <View style={[styles.timeAwareCard, { backgroundColor: isDarkMode ? timeSection.bgDark : timeSection.bgLight }]}>
-                <View style={styles.timeAwareHeaderRow}>
-                  <View style={[styles.timeBadgePill, { backgroundColor: timeSection.badgeColor }]}>
-                    <Text style={styles.timeBadgeText}>{timeSection.tag}</Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => router.push({ pathname: '/collection/[id]', params: { id: timeSection.collectionId } } as any)}
-                    activeOpacity={0.7}
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: '#000000',
+                    paddingHorizontal: 20,
+                    paddingVertical: 11,
+                    borderRadius: 22,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.2,
+                    shadowRadius: 4,
+                    elevation: 4,
+                  }}
+                    activeOpacity={0.85}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                      dynamicCuratedBundle.items.slice(0, 5).forEach((item: any) => {
+                        handleAddToCart(item.raw || {
+                          id: item.id,
+                          name: item.title,
+                          price: item.priceNum,
+                          priceFormatted: item.price,
+                          image: item.image,
+                          thumbnail: item.image,
+                          categoryName: item.category,
+                        });
+                      });
+                      setToastMessage(`Added all 5 items from ${dynamicCuratedBundle.title}! 🛍️`);
+                      setTimeout(() => setToastMessage(null), 3000);
+                    }}
                   >
-                    <Text style={[styles.timeSeeAllText, { color: timeSection.badgeColor }]}>Explore →</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF', letterSpacing: 1, textTransform: 'uppercase' }}>
+                      ADD BUNDLE
+                    </Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={[styles.timeAwareTitle, isDarkMode && { color: '#F8FAFC' }]}>{timeSection.title}</Text>
-                <Text style={[styles.timeAwareSub, isDarkMode && { color: '#94A3B8' }]}>{timeSection.sub}</Text>
+              </TouchableOpacity>
 
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 12, paddingTop: 12 }}
-                  decelerationRate="fast"
-                  snapToInterval={168}
-                  snapToAlignment="start"
-                >
-                  {timeSection.products.map((p) => (
-                    <GenZProductCard
-                      key={p.id}
-                      item={p}
-                      isDarkMode={isDarkMode}
-                      onPress={() => router.push({ pathname: '/collection/[id]', params: { id: timeSection.collectionId } } as any)}
-                      onAddToCart={() => handleAddToCart(p)}
-                    />
-                  ))}
-                </ScrollView>
-              </View>
-            </Reanimated.View>
-          );
-        })()}
-
-        {/* ─── 5. ASYMMETRIC GEN-Z LIFESTYLE COLLECTIONS ─── */}
-        <Reanimated.View style={reanimatedCuratedStyle}>
-          <View style={[styles.discoveryHeader, { marginTop: 24 }]}>
-            <View>
-              <Text style={[styles.discoveryTitle, isDarkMode && { color: '#F8FAFC' }]}>Curated Collections 🛍️</Text>
-              <Text style={[styles.discoverySub, isDarkMode && { color: '#94A3B8' }]}>Handpicked for your aesthetic</Text>
-            </View>
-            <TouchableOpacity onPress={() => router.push('/orders')} activeOpacity={0.7} style={styles.seeAllRow}>
-              <Text style={styles.gzSeeAllText}>See all</Text>
-              <Ionicons name="chevron-forward" size={13} color="#7C3AED" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.asymmetricGrid}>
-            {/* Left Hero Card */}
-            <TouchableOpacity
-              style={styles.asymmetricLeftHero}
-              activeOpacity={0.92}
-              onPress={() => router.push({ pathname: '/collection/[id]', params: { id: 'late_night_munchies' } } as any)}
+            {/* ─── PREMIUM PROMO BANNERS / CAMPAIGNS (Replacing Demo Salads) ─── */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingLeft: 20, paddingRight: 8, gap: 16, marginTop: 12, paddingBottom: 20 }}
+              decelerationRate="fast"
+              snapToInterval={290 + 16}
+              snapToAlignment="start"
             >
-              <Image
-                source={{ uri: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=600&auto=format&fit=crop&q=80' }}
-                style={styles.asymmetricHeroImg}
-              />
-              <View style={styles.asymmetricOverlay}>
-                <View style={styles.asymmetricBadge}>
-                  <Text style={styles.asymmetricBadgeText}>✨ HOSTEL GLOW-UP</Text>
-                </View>
-                <Text style={styles.asymmetricTitle}>Hostel & Room Upgrades</Text>
-                <Text style={styles.asymmetricSub}>Make your space feel like yours</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Right Column Stacked */}
-            <View style={styles.asymmetricRightColumn}>
-              <TouchableOpacity
-                style={styles.asymmetricRightCard}
-                activeOpacity={0.92}
-                onPress={() => router.push({ pathname: '/collection/[id]', params: { id: 'healthy_living' } } as any)}
-              >
-                <Image
-                  source={{ uri: 'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=500&auto=format&fit=crop&q=80' }}
-                  style={styles.asymmetricRightImg}
-                />
-                <View style={styles.asymmetricOverlayCompact}>
-                  <Text style={styles.asymmetricBadgeTextCompact}>🍃 CLEAN LIVING</Text>
-                  <Text style={styles.asymmetricTitleCompact}>Organic Pantry</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.asymmetricRightCard}
-                activeOpacity={0.92}
-                onPress={() => router.push({ pathname: '/collection/[id]', params: { id: 'party_ready' } } as any)}
-              >
-                <Image
-                  source={{ uri: 'https://images.unsplash.com/photo-1527960471264-932f39eb5846?w=500&auto=format&fit=crop&q=80' }}
-                  style={styles.asymmetricRightImg}
-                />
-                <View style={styles.asymmetricOverlayCompact}>
-                  <Text style={styles.asymmetricBadgeTextCompact}>⚡ WEEKEND VIBE</Text>
-                  <Text style={styles.asymmetricTitleCompact}>Party Snack Mix</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Reanimated.View>
-
-        {/* ─── 6. FLASH SALE & LIVE DEALS ⚡ (FULL-BLEED COVER WITH 2 AM ROTATION) ─── */}
-        <Reanimated.View style={reanimatedFlashDealsStyle}>
-          <View style={[styles.discoveryHeader, { marginTop: 24 }]}>
-            <View style={styles.timerTitleRow}>
-              <Text style={[styles.discoveryTitle, isDarkMode && { color: '#F8FAFC' }]}>Flash Deals ⚡</Text>
-              <View style={[styles.timerBadge, { backgroundColor: isDarkMode ? 'rgba(244, 63, 94, 0.2)' : 'rgba(244, 63, 94, 0.12)' }]}>
-                <Ionicons name="time-outline" size={12} color="#F43F5E" />
-                <Text style={[styles.timerText, { color: '#F43F5E' }]}>{formatTimer(secondsLeft)}</Text>
-              </View>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.flashFullCoverCard}
-            onPress={() => {
-              openQuickAdd({
-                id: currentFlashDeal.id,
-                title: currentFlashDeal.title,
-                price: currentFlashDeal.price,
-                image: currentFlashDeal.image,
-              });
-            }}
-            activeOpacity={0.92}
-          >
-            <Reanimated.Image
-              source={{ uri: currentFlashDeal.image }}
-              style={[styles.flashFullCoverImg, reanimatedFlashImgStyle, { transform: [{ scale: 1.12 }] }]}
-              resizeMode="cover"
-            />
-
-            {/* Dark Gradient Ambient Overlay */}
-            <View style={styles.flashFullCoverOverlay} />
-
-            {/* Top Badges Over Image */}
-            <View style={styles.flashTopBadgesRow}>
-              <View style={styles.flashLiveBadge}>
-                <View style={styles.flashLiveDot} />
-                <Text style={styles.flashLiveText}>2 AM DAILY DROP</Text>
-              </View>
-              <View style={styles.flashDiscountPill}>
-                <Text style={styles.flashDiscountText}>{currentFlashDeal.discount}</Text>
-              </View>
-            </View>
-
-            {/* Overlaid Bottom Content */}
-            <View style={styles.flashFullCoverContent}>
-              <Text style={styles.flashFullCoverTitle}>{currentFlashDeal.title}</Text>
-              <Text style={styles.flashFullCoverDesc} numberOfLines={2}>{currentFlashDeal.desc}</Text>
-              <View style={styles.flashFullCoverFooter}>
-                <View style={styles.flashPriceWrap}>
-                  <Text style={styles.flashDealPrice}>{currentFlashDeal.price}</Text>
-                  <Text style={styles.flashOldPrice}>{currentFlashDeal.oldPrice}</Text>
-                </View>
+              {[
+                {
+                  id: 'tech_campaign',
+                  tag: 'TECH COLLECTIVE',
+                  title: 'Upgrade Your Tech Vibe',
+                  subtitle: 'Premium gadgets, high-fidelity audio, and ambient workspace accessories.',
+                  buttonText: 'Explore Tech',
+                  image: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=800&auto=format&fit=crop&q=80',
+                  targetCategoryId: 'electronics',
+                },
+                {
+                  id: 'home_campaign',
+                  tag: 'MINIMAL LIVING',
+                  title: 'Elevate Your Space',
+                  subtitle: 'Handcrafted ceramic decor, soft ambient lighting, and bespoke furniture.',
+                  buttonText: 'Shop Home',
+                  image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800&auto=format&fit=crop&q=80',
+                  targetCategoryId: 'home_living',
+                },
+                {
+                  id: 'fashion_campaign',
+                  tag: 'SEASONAL EDITIONS',
+                  title: 'Clean Minimal Fits',
+                  subtitle: 'Heavyweight organic cotton tees, tailored layers, and streetwear kicks.',
+                  buttonText: 'Shop Style',
+                  image: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=800&auto=format&fit=crop&q=80',
+                  targetCategoryId: 'fashion',
+                },
+              ].map((campaign) => (
                 <TouchableOpacity
-                  style={styles.flashGrabBtn}
-                  onPress={() => {
-                    openQuickAdd({
-                      id: currentFlashDeal.id,
-                      title: currentFlashDeal.title,
-                      price: currentFlashDeal.price,
-                      image: currentFlashDeal.image,
-                    });
+                  key={campaign.id}
+                  style={{
+                    width: 290,
+                    height: 200,
+                    borderRadius: 20,
+                    overflow: 'hidden',
+                    backgroundColor: isDarkMode ? '#1E293B' : '#FFFFFF',
+                    borderWidth: 1,
+                    borderColor: isDarkMode ? '#334155' : '#F1F5F9',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: isDarkMode ? 0.2 : 0.05,
+                    shadowRadius: 8,
+                    elevation: 3,
                   }}
-                  activeOpacity={0.85}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    router.push({
+                      pathname: '/category-products',
+                      params: { categoryId: campaign.targetCategoryId }
+                    } as any);
+                  }}
+                  activeOpacity={0.92}
                 >
-                  <Text style={styles.flashGrabBtnText}>Grab Deal Now →</Text>
+                  <Image
+                    source={{ uri: campaign.image }}
+                    style={{
+                      position: 'absolute',
+                      width: '100%',
+                      height: '100%',
+                      opacity: isDarkMode ? 0.35 : 0.45,
+                    }}
+                    resizeMode="cover"
+                  />
+                  <View
+                    style={{
+                      position: 'absolute',
+                      width: '100%',
+                      height: '100%',
+                      backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.7)',
+                    }}
+                  />
+                  <View style={{ flex: 1, padding: 18, justifyContent: 'space-between' }}>
+                    <View>
+                      <Text
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: '800',
+                          letterSpacing: 1.5,
+                          color: isDarkMode ? '#38BDF8' : '#10B981',
+                          textTransform: 'uppercase',
+                          marginBottom: 4,
+                        }}
+                      >
+                        {campaign.tag}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 18,
+                          fontWeight: '700',
+                          color: isDarkMode ? '#F8FAFC' : '#1E293B',
+                          lineHeight: 22,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {campaign.title}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          color: isDarkMode ? '#94A3B8' : '#475569',
+                          lineHeight: 15,
+                        }}
+                        numberOfLines={3}
+                      >
+                        {campaign.subtitle}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={{
+                        alignSelf: 'flex-start',
+                        backgroundColor: isDarkMode ? '#FFFFFF' : '#1E293B',
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 14,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '800',
+                          color: isDarkMode ? '#0F172A' : '#FFFFFF',
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        {campaign.buttonText}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* ─── LOCATION-SENSITIVE CURATED FASHION, BEAUTY & QUICKBUY GRID (MIDNIGHT CRAVINGS MINIMALIST UI - IMAGE 1) ─── */}
+            <View style={{ paddingHorizontal: 20, marginTop: 28, marginBottom: 16 }}>
+              <Text style={{
+                fontSize: 24,
+                fontWeight: '400',
+                fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+                color: isDarkMode ? '#F8FAFC' : '#1E293B',
+                letterSpacing: -0.3,
+              }}>
+                Curated for {locationSensitiveData.cityName}
+              </Text>
+              <Text style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>
+                {locationSensitiveData.locationLabel}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, justifyContent: 'space-between' }}>
+              {locationSensitiveData.products.map((prod, idx) => (
+                <TouchableOpacity
+                  key={`loc_prod_${prod.id}_${idx}`}
+                  style={{
+                    width: '48%',
+                    marginBottom: 22,
+                  }}
+                  onPress={() => router.push({
+                    pathname: '/product/[id]',
+                    params: {
+                      id: prod.id,
+                      title: prod.title,
+                      price: prod.price,
+                      originalPrice: prod.originalPrice,
+                      image: prod.image,
+                      category: prod.category || prod.tag,
+                      brand: 'EasyBuy',
+                      description: prod.tag,
+                    }
+                  } as any)}
+                  activeOpacity={0.9}
+                >
+                  {/* Clean Minimalist Image Container with Floating White Circular Plus Button (Image 1 Style) */}
+                  <View style={{
+                    position: 'relative',
+                    width: '100%',
+                    height: 175,
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                    backgroundColor: isDarkMode ? '#1E293B' : '#F4F1EA',
+                  }}>
+                    <Image
+                      source={{ uri: prod.image }}
+                      style={{ width: '100%', height: '100%', resizeMode: 'cover' }}
+                    />
+                    
+                    {/* Category / QuickBuy Badge */}
+                    {prod.isQuickBuy ? (
+                      <View style={{
+                        position: 'absolute',
+                        top: 8,
+                        left: 8,
+                        backgroundColor: '#FF6B00',
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: 12,
+                      }}>
+                        <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 }}>⚡ QUICKBUY</Text>
+                      </View>
+                    ) : null}
+
+                    {/* Floating White Circular Plus Button (Image 1 Signature UI) */}
+                    <TouchableOpacity
+                      style={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor: '#FFFFFF',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.15,
+                        shadowRadius: 4,
+                        elevation: 4,
+                      }}
+                      onPress={() => handleAddToCart(prod)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="add" size={18} color="#1E293B" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Clean Minimalist Text Block */}
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '600',
+                    color: isDarkMode ? '#F8FAFC' : '#1E293B',
+                    marginTop: 8,
+                    lineHeight: 18,
+                  }} numberOfLines={2}>
+                    {prod.title}
+                  </Text>
+                  
+                  <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }} numberOfLines={1}>
+                    {prod.tag}
+                  </Text>
+
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '700',
+                    color: isDarkMode ? '#E2E8F0' : '#334155',
+                    marginTop: 4,
+                  }}>
+                    {prod.price}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* ─── DARK LUXURY PROMOTIONAL SHOWCASE ─── */}
+            <DarkLuxuryPromotionalSection isDarkMode={isDarkMode} />
+
+            {/* ─── THE EDITORIAL JOURNAL (QUIET LUXURY STORY CARDS) ─── */}
+            <View style={{ paddingHorizontal: 20, marginTop: 32, marginBottom: 28 }}>
+              {/* Section Header */}
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{
+                  fontSize: 10,
+                  fontWeight: '700',
+                  letterSpacing: 2,
+                  color: isDarkMode ? '#94A3B8' : '#78716C',
+                  textTransform: 'uppercase',
+                  marginBottom: 4,
+                }}>
+                  THE EDITORIAL JOURNAL
+                </Text>
+                <Text style={{
+                  fontSize: 26,
+                  fontWeight: '400',
+                  fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+                  color: isDarkMode ? '#F8FAFC' : '#1C1917',
+                  letterSpacing: -0.4,
+                }}>
+                  Slow Living in {locationSensitiveData.cityName}
+                </Text>
+              </View>
+
+              {/* High-End Story Card */}
+              <TouchableOpacity
+                style={{
+                  width: '100%',
+                  height: 260,
+                  borderRadius: 20,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  backgroundColor: '#1C1917',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 6 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 12,
+                  elevation: 5,
+                }}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  setSelectedEditorialStory(dynamicEditorial.heroStory);
+                  setEditorialStoryModalVisible(true);
+                }}
+                activeOpacity={0.92}
+              >
+                <Image
+                  source={{ uri: dynamicEditorial.heroStory.coverImage }}
+                  style={{ width: '100%', height: '100%', resizeMode: 'cover', opacity: 0.82 }}
+                />
+                
+                {/* Subtle Gradient Overlay */}
+                <View style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(28, 25, 23, 0.45)',
+                  padding: 24,
+                  justifyContent: 'flex-end',
+                }}>
+                  <Text style={{
+                    color: '#F5F5F4',
+                    fontSize: 10,
+                    fontWeight: '700',
+                    letterSpacing: 1.5,
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}>
+                    {dynamicEditorial.heroStory.issue}
+                  </Text>
+                  
+                  <Text style={{
+                    color: '#FFFFFF',
+                    fontSize: 22,
+                    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+                    fontWeight: '400',
+                    lineHeight: 28,
+                    marginBottom: 8,
+                  }}>
+                    {dynamicEditorial.heroStory.title}
+                  </Text>
+
+                  <Text style={{
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    fontSize: 13,
+                    lineHeight: 18,
+                    marginBottom: 16,
+                  }}>
+                    {dynamicEditorial.heroStory.subtitle}
+                  </Text>
+
+                  <View style={{
+                    alignSelf: 'flex-start',
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                  }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1C1917' }}>
+                      Read Story & Explore →
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* ─── QUIET LUXURY CRAFT HIGHLIGHTS (HORIZONTAL CAROUSEL) ─── */}
+            <View style={{ marginBottom: 32 }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingLeft: 20, paddingRight: 8, gap: 14 }}
+              >
+                {dynamicEditorial.craftCards.map((item, index) => (
+                  <TouchableOpacity
+                    key={`craft_${index}`}
+                    style={{
+                      width: 220,
+                      backgroundColor: isDarkMode ? '#1E293B' : '#FAF8F5',
+                      borderRadius: 18,
+                      padding: 14,
+                      borderWidth: 1,
+                      borderColor: isDarkMode ? '#334155' : '#EFECE6',
+                    }}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setSelectedEditorialStory(item.story);
+                      setEditorialStoryModalVisible(true);
+                    }}
+                    activeOpacity={0.88}
+                  >
+                    <Image
+                      source={{ uri: item.image }}
+                      style={{ width: '100%', height: 130, borderRadius: 12, marginBottom: 10 }}
+                      resizeMode="cover"
+                    />
+                    <Text style={{ fontSize: 9, fontWeight: '800', letterSpacing: 1.2, color: '#FFA451', textTransform: 'uppercase', marginBottom: 4 }}>
+                      {item.tag}
+                    </Text>
+                    <Text style={{
+                      fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+                      fontSize: 15,
+                      fontWeight: '700',
+                      color: isDarkMode ? '#F8FAFC' : '#1C1917',
+                      marginBottom: 4,
+                    }} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#94A3B8', lineHeight: 15 }} numberOfLines={2}>
+                      {item.subtitle}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* ─── BESPOKE CONCIERGE FOOTER CARD ─── */}
+            <View style={{ paddingHorizontal: 20, marginBottom: 36 }}>
+              <View style={{
+                backgroundColor: isDarkMode ? '#1E293B' : '#F4F1EA',
+                borderRadius: 20,
+                padding: 20,
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: isDarkMode ? '#334155' : '#E8E4DA',
+              }}>
+                <Ionicons name="sparkles-outline" size={24} color="#FFA451" style={{ marginBottom: 8 }} />
+                <Text style={{
+                  fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+                  fontSize: 17,
+                  fontWeight: '600',
+                  color: isDarkMode ? '#F8FAFC' : '#1C1917',
+                  textAlign: 'center',
+                  marginBottom: 6,
+                }}>
+                  Seeking a rare specialty in {locationSensitiveData.cityName}?
+                </Text>
+                <Text style={{
+                  fontSize: 12,
+                  color: '#94A3B8',
+                  textAlign: 'center',
+                  lineHeight: 18,
+                  marginBottom: 14,
+                  maxWidth: '88%',
+                }}>
+                  Our local procurement team works directly with certified artisans across {locationSensitiveData.cityName}.
+                </Text>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: isDarkMode ? '#334155' : '#1C1917',
+                    paddingHorizontal: 18,
+                    paddingVertical: 10,
+                    borderRadius: 20,
+                  }}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                    setToastMessage(`✨ Concierge team notified for ${locationSensitiveData.cityName}!`);
+                    setTimeout(() => setToastMessage(null), 3000);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 }}>
+                    Request Custom Order
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
-          </TouchableOpacity>
-        </Reanimated.View>
 
-        {/* ─── 7. GAMIFICATION LEVEL & STREAK ─── */}
-        <Reanimated.View style={reanimatedGamificationStyle}>
-          <View
-            style={[
-              styles.gamifiedCard,
-              {
-                backgroundColor: isDarkMode ? 'rgba(30, 27, 75, 0.45)' : 'rgba(243, 229, 245, 0.35)',
-                borderColor: isDarkMode ? 'rgba(168, 85, 247, 0.5)' : 'rgba(233, 213, 255, 0.8)',
-                borderWidth: 1.5,
-              },
-            ]}
-          >
-            <View style={styles.gamifiedTop}>
-              <View style={[styles.levelBadge, isDarkMode && { backgroundColor: 'rgba(168, 85, 247, 0.2)' }]}>
-                <Ionicons name="trophy" size={16} color={isDarkMode ? '#C084FC' : THEME.PURPLE} />
-                <Text style={[styles.levelText, isDarkMode && { color: '#F8FAFC' }]}>Your Level: Level 7</Text>
-              </View>
-              <View style={[styles.streakBadge, isDarkMode && { backgroundColor: 'rgba(234, 88, 12, 0.2)', borderColor: 'rgba(234, 88, 12, 0.4)' }]}>
-                <Text style={styles.streakText}>🔥 5 Day Streak</Text>
-              </View>
-            </View>
+          </Reanimated.ScrollView>
+        </ScrollContext.Provider>
 
-            <Text style={[styles.xpText, isDarkMode && { color: '#94A3B8' }]}>680 / 1000 XP to Level 8</Text>
-            <View style={[styles.xpBarBg, isDarkMode && { backgroundColor: '#312E81' }]}>
-              <View style={[styles.xpBarFill, { width: '68%', backgroundColor: THEME.PURPLE }]} />
-            </View>
+                {/* ─── BOTTOM NAV ─── */}
+        <ExperimentalNavigation
+          activeTab={activeTab}
+          onTabChange={(tabId) => {
+            if (tabId === 'profile') router.push('/profile');
+            else if (tabId === 'orders') router.push('/orders');
+            else setActiveTab(tabId);
+          }}
+          isDarkMode={isDarkMode}
+        />
 
-            <View style={styles.rewardActionRow}>
-              <TouchableOpacity
-                style={[
-                  styles.rewardActionBtn,
-                  {
-                    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.55)',
-                    borderColor: isDarkMode ? 'rgba(51, 65, 85, 0.6)' : 'rgba(255, 255, 255, 0.95)',
-                    borderWidth: 1.5,
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                  setGamificationModal('Mystery Box');
-                }}
-              >
-                <Text style={styles.rewardEmoji}>🎁</Text>
-                <Text style={[styles.rewardText, isDarkMode && { color: '#F8FAFC' }]}>Mystery Box</Text>
-              </TouchableOpacity>
+        
 
-              <TouchableOpacity
-                style={[
-                  styles.rewardActionBtn,
-                  {
-                    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.55)',
-                    borderColor: isDarkMode ? 'rgba(51, 65, 85, 0.6)' : 'rgba(255, 255, 255, 0.95)',
-                    borderWidth: 1.5,
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                  setGamificationModal('Lucky Spin');
-                }}
-              >
-                <Text style={styles.rewardEmoji}>🎰</Text>
-                <Text style={[styles.rewardText, isDarkMode && { color: '#F8FAFC' }]}>Lucky Spin</Text>
-              </TouchableOpacity>
+        {/* ─── MODALS ─── */}
+        <SearchModal visible={searchModalVisible} onClose={handleCloseSearchModal} initialMode={searchMode} isDarkMode={isDarkMode} />
+        <SpinWinModal visible={spinWinModalVisible} onClose={() => setSpinWinModalVisible(false)} isDarkMode={isDarkMode} />
+        <VoiceBuyModal
+          visible={voiceBuyVisible}
+          onClose={() => setVoiceBuyVisible(false)}
+          onAddToCart={(items) => {
+            setToastMessage('Added to Cart');
+            setTimeout(() => setToastMessage(null), 3000);
+          }}
+          isDarkMode={isDarkMode}
+        />
+                <QuickAddModal visible={quickAddVisible} product={selectedQuickAdd} onClose={() => setQuickAddVisible(false)} onAddToCart={handleAddToCart} isDarkMode={isDarkMode} />
+                <FilterModal
+          visible={filterModalVisible}
+          onClose={() => setFilterModalVisible(false)}
+          isDarkMode={isDarkMode}
+        />
 
-              <TouchableOpacity
-                style={[
-                  styles.rewardActionBtn,
-                  {
-                    backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.55)',
-                    borderColor: isDarkMode ? 'rgba(51, 65, 85, 0.6)' : 'rgba(255, 255, 255, 0.95)',
-                    borderWidth: 1.5,
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                  setGamificationModal('My Badges');
-                }}
-              >
-                <Text style={styles.rewardEmoji}>🏅</Text>
-                <Text style={[styles.rewardText, isDarkMode && { color: '#F8FAFC' }]}>My Badges</Text>
+        {gamificationModal && (
+          <View style={styles.rewardModalBackdrop}>
+            <View style={[styles.rewardModalCard, isDarkMode && styles.rewardModalDark]}>
+              <Text style={styles.rewardModalEmoji}>🎉</Text>
+              <Text style={[styles.rewardModalTitle, isDarkMode && { color: '#F8FAFC' }]}>{gamificationModal} Unlocked!</Text>
+              <Text style={styles.rewardModalSub}>You earned +150 Coins & 50 XP!</Text>
+              <TouchableOpacity style={styles.rewardClaimBtn} onPress={() => setGamificationModal(null)}>
+                <Text style={styles.rewardClaimText}>Claim Reward 🎁</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </Reanimated.View>
+        )}
 
-        {/* ─── 8. RECOMMENDED FOR YOU 💜 (COMPACT SNAP RAIL) ─── */}
-        <Reanimated.View style={reanimatedRecommendedStyle}>
-          <View style={[styles.discoveryHeader, { marginTop: 24 }]}>
-            <View>
-              <Text style={[styles.discoveryTitle, isDarkMode && { color: '#F8FAFC' }]}>Recommended for You 💜</Text>
-              <Text style={[styles.discoverySub, isDarkMode && { color: '#94A3B8' }]}>Curated just for you, {userName}</Text>
-            </View>
-            <TouchableOpacity onPress={() => router.push('/all-items')} activeOpacity={0.7} style={styles.seeAllRow}>
-              <Text style={styles.gzSeeAllText}>See all</Text>
-              <Ionicons name="chevron-forward" size={13} color="#7C3AED" />
-            </TouchableOpacity>
-          </View>
+        {activeToastText && (
+          <Animated.View style={[styles.floatingToastBar, { opacity: toastOpacity, transform: [{ translateY: toastTranslateY }] }]}>
+            <Text style={styles.floatingToastText}>{activeToastText}</Text>
+          </Animated.View>
+        )}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.compactRailScroll}
-            decelerationRate="fast"
-            snapToInterval={168}
-            snapToAlignment="start"
-          >
-            {RECOMMENDED_PRODUCTS.map((prod) => (
-              <GenZProductCard
-                key={prod.id}
-                item={prod}
-                isDarkMode={isDarkMode}
-                isFav={!!favorites[prod.id]}
-                onToggleFav={() => toggleFavorite(prod.id)}
-                onPress={() => router.push({ pathname: '/product/[id]', params: { id: prod.id } } as any)}
-                onAddToCart={() => handleAddToCart(prod)}
-              />
-            ))}
-          </ScrollView>
-        </Reanimated.View>
+        <WalletModal visible={walletModalVisible} onClose={() => setWalletModalVisible(false)} isDarkMode={isDarkMode} />
+        <LoyaltyModal visible={loyaltyModalVisible} onClose={() => setLoyaltyModalVisible(false)} isDarkMode={isDarkMode} />
+        <CuratedBundleModal
+          visible={curatedBundleModalVisible}
+          bundle={dynamicCuratedBundle}
+          onClose={() => setCuratedBundleModalVisible(false)}
+          onAddToCart={(item) => {
+            handleAddToCart(item.raw || {
+              id: item.id,
+              name: item.title,
+              price: item.priceNum,
+              priceFormatted: item.price,
+              image: item.image,
+              thumbnail: item.image,
+              categoryName: item.category,
+            });
+            setToastMessage('Added to Cart');
+            setTimeout(() => setToastMessage(null), 3000);
+          }}
+          onAddAllToCart={(items) => {
+            items.forEach((item) => {
+              handleAddToCart(item.raw || {
+                id: item.id,
+                name: item.title,
+                price: item.priceNum,
+                priceFormatted: item.price,
+                image: item.image,
+                thumbnail: item.image,
+                categoryName: item.category,
+              });
+            });
+            setToastMessage('Added to Cart');
+            setTimeout(() => setToastMessage(null), 3000);
+          }}
+          isDarkMode={isDarkMode}
+        />
+        <EditorialStoryModal
+          visible={editorialStoryModalVisible}
+          story={selectedEditorialStory}
+          onClose={() => setEditorialStoryModalVisible(false)}
+          onAddToCart={(item) => {
+            handleAddToCart(item);
+            setToastMessage('Added to Cart');
+            setTimeout(() => setToastMessage(null), 3000);
+          }}
+          isDarkMode={isDarkMode}
+        />
 
-        {/* ─── 9. EASYBUY PLUS ⭐ BANNER ─── */}
-        <Reanimated.View style={reanimatedPlusStyle}>
-          <View style={[styles.plusBanner, { backgroundColor: isDarkMode ? '#1E1B4B' : '#F3E5F5', borderColor: isDarkMode ? '#312E81' : 'transparent', borderWidth: isDarkMode ? 1 : 0 }]}>
-            <View style={styles.plusLeft}>
-              <Text style={[styles.plusTitle, isDarkMode && { color: '#F8FAFC' }]}>Save More with EasyBuy Plus ⭐</Text>
-              <Text style={[styles.plusSub, isDarkMode && { color: '#94A3B8' }]}>Free delivery • Extra coins • Early access</Text>
-              <TouchableOpacity style={[styles.plusBtn, { backgroundColor: THEME.PURPLE }]} activeOpacity={0.85}>
-                <Text style={styles.plusBtnText}>Join Now →</Text>
-              </TouchableOpacity>
-            </View>
-            <Ionicons name="gift" size={56} color={THEME.PURPLE} />
-          </View>
-        </Reanimated.View>
-
-        {/* ─── 10. RECENTLY VIEWED 👀 (COMPACT SNAP RAIL) ─── */}
-        <Reanimated.View style={reanimatedRecentlyViewedStyle}>
-          <View style={[styles.discoveryHeader, { marginTop: 24 }]}>
-            <View>
-              <Text style={[styles.discoveryTitle, isDarkMode && { color: '#F8FAFC' }]}>Recently Viewed 👀</Text>
-              <Text style={[styles.discoverySub, isDarkMode && { color: '#94A3B8' }]}>Items you checked out recently</Text>
-            </View>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.compactRailScroll}
-            decelerationRate="fast"
-            snapToInterval={168}
-            snapToAlignment="start"
-          >
-            {RECENTLY_VIEWED.map((rv) => (
-              <GenZProductCard
-                key={rv.id}
-                item={rv}
-                isDarkMode={isDarkMode}
-                isFav={!!favorites[rv.id]}
-                onToggleFav={() => toggleFavorite(rv.id)}
-                onPress={() => router.push({ pathname: '/product/[id]', params: { id: rv.id } } as any)}
-                onAddToCart={() => handleAddToCart(rv)}
-              />
-            ))}
-          </ScrollView>
-        </Reanimated.View>
-
-        {/* ─── 14. TRUST BADGES STRIP ─── */}
-        <Reanimated.View style={reanimatedTrustStripStyle}>
-          <View style={[styles.trustStrip, isDarkMode && styles.trustStripDark]}>
-            <View style={styles.trustItem}>
-              <Ionicons name="car-outline" size={16} color={isDarkMode ? '#A855F7' : THEME.PRIMARY} />
-              <Text style={[styles.trustText, isDarkMode && { color: '#94A3B8' }]}>10 Min Delivery</Text>
-            </View>
-            <View style={styles.trustItem}>
-              <Ionicons name="refresh-outline" size={16} color={isDarkMode ? '#A855F7' : THEME.PRIMARY} />
-              <Text style={[styles.trustText, isDarkMode && { color: '#94A3B8' }]}>Easy Returns</Text>
-            </View>
-            <View style={styles.trustItem}>
-              <Ionicons name="shield-checkmark-outline" size={16} color={isDarkMode ? '#A855F7' : THEME.PRIMARY} />
-              <Text style={[styles.trustText, isDarkMode && { color: '#94A3B8' }]}>100% Secure</Text>
-            </View>
-            <View style={styles.trustItem}>
-              <Ionicons name="pricetag-outline" size={16} color={isDarkMode ? '#A855F7' : THEME.PRIMARY} />
-              <Text style={[styles.trustText, isDarkMode && { color: '#94A3B8' }]}>Best Price</Text>
-            </View>
-          </View>
-        </Reanimated.View>
-
-      </Reanimated.ScrollView>
-
-      {/* ─── FLOATING DOCK NAVIGATION ─── */}
-      <ExperimentalNavigation
-        activeTab={activeTab}
-        onTabChange={(tabId) => {
-          if (tabId === 'profile') {
-            router.push('/profile');
-          } else if (tabId === 'orders') {
-            router.push('/orders');
-          } else {
-            setActiveTab(tabId);
-          }
-        }}
-        isDarkMode={isDarkMode}
-      />
-
-      {/* ─── ADVANCED MORPHING SEARCH MODAL ─── */}
-      <SearchModal
-        visible={searchModalVisible}
-        onClose={handleCloseSearchModal}
-        initialMode={searchMode}
-        isDarkMode={isDarkMode}
-      />
-
-      {/* ─── SPIN & WIN DAILY MYSTERY REWARD WHEEL ─── */}
-      <SpinWinModal
-        visible={spinWinModalVisible}
-        onClose={() => setSpinWinModalVisible(false)}
-        isDarkMode={isDarkMode}
-      />
-
-      {/* ─── VOICEBUY AI MODAL ─── */}
-      <VoiceBuyModal
-        visible={voiceBuyVisible}
-        onClose={() => setVoiceBuyVisible(false)}
-        onAddToCart={(items) => {
-          const names = items.map((i) => `${i.quantity}× ${i.name}`).join(', ');
-          setToastMessage(`🛒 Added to cart: ${names}`);
-          setTimeout(() => setToastMessage(null), 4000);
-        }}
-        isDarkMode={isDarkMode}
-      />
-
-      {/* ─── QUICK ADD VARIANT SHEET ─── */}
-      <QuickAddModal
-        visible={quickAddVisible}
-        product={selectedQuickAdd}
-        onClose={() => setQuickAddVisible(false)}
-        onAddToCart={handleAddToCart}
-        isDarkMode={isDarkMode}
-      />
-
-      {/* ─── GAMIFICATION REWARDS POPUP MODAL ─── */}
-      {gamificationModal && (
-        <View style={styles.rewardModalBackdrop}>
-          <View style={[styles.rewardModalCard, isDarkMode && styles.rewardModalDark]}>
-            <Text style={styles.rewardModalEmoji}>🎉</Text>
-            <Text style={[styles.rewardModalTitle, isDarkMode && { color: '#F8FAFC' }]}>
-              {gamificationModal} Unlocked!
-            </Text>
-            <Text style={styles.rewardModalSub}>You earned +150 Coins & 50 XP!</Text>
-            <TouchableOpacity
-              style={styles.rewardClaimBtn}
-              onPress={() => setGamificationModal(null)}
-            >
-              <Text style={styles.rewardClaimText}>Claim Reward 🎁</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {toastMessage && (
-        <View style={styles.floatingToastBar}>
-          <Ionicons name="checkmark-circle" size={18} color="#2F6E49" />
-          <Text style={styles.floatingToastText}>{toastMessage}</Text>
-        </View>
-      )}
-
-      <WalletModal
-        visible={walletModalVisible}
-        onClose={() => setWalletModalVisible(false)}
-        isDarkMode={isDarkMode}
-      />
-
-      <LoyaltyModal
-        visible={loyaltyModalVisible}
-        onClose={() => setLoyaltyModalVisible(false)}
-        isDarkMode={isDarkMode}
-      />
-
-    </SafeAreaView>
+      </SafeAreaView>
     </SpatialDrawerWrapper>
   );
 }
@@ -4216,28 +5937,26 @@ const styles = StyleSheet.create({
   // Toast
   floatingToastBar: {
     position: 'absolute',
-    top: 60,
+    bottom: 100,
     alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    backgroundColor: 'rgba(26, 26, 24, 0.68)',
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    borderWidth: 1.5,
-    borderColor: THEME.PRIMARY,
-    shadowColor: THEME.PRIMARY,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 10,
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
     zIndex: 200,
   },
   floatingToastText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: THEME.TEXT_DARK,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   headerIconBtn: {
     width: 36,
@@ -4493,10 +6212,1371 @@ const styles = StyleSheet.create({
     backgroundColor: '#CBD5E1',
     borderRadius: 16,
   },
-  heroSkeletonImg: {
+    heroSkeletonImg: {
     width: 100,
     height: 100,
     borderRadius: 16,
     backgroundColor: '#CBD5E1',
   },
+
+  // ─── NEW CLEAN UI STYLES ───
+
+  // Compact Header
+  compactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  compactHeaderDark: {
+    backgroundColor: '#0F172A',
+    borderBottomColor: '#1E293B',
+  },
+  compactMenuBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  compactLocationRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    overflow: 'hidden',
+  },
+  compactLocationText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+    maxWidth: 140,
+  },
+  compactHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  compactIconBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compactBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  compactBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  // Clean Scroll
+  cleanScrollContent: {
+    paddingTop: 12,
+    paddingBottom: 110,
+  },
+
+  // Clean Search Bar
+  cleanSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 46,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  cleanSearchBarDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  cleanSearchPlaceholder: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#94A3B8',
+  },
+  cleanSearchMic: {
+    padding: 4,
+  },
+
+  // Category Pills
+  categoryPillsRow: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  categoryPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  categoryPillActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  categoryPillDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  categoryPillTextActive: {
+    color: '#FFFFFF',
+  },
+
+  // Banner Skeleton
+  cleanBannerSkeleton: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    height: 180,
+    borderRadius: 16,
+    backgroundColor: '#E2E8F0',
+  },
+
+  // Quick Access Grid (4 tiles)
+  quickAccessGrid: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  quickAccessTile: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    gap: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  quickAccessTileDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  quickAccessIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickAccessLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+  },
+
+  // Section Headers
+  cleanSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  cleanSectionTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  cleanSeeAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  cleanSeeAllText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+
+  // Product Card (horizontal rail)
+  cleanProductCard: {
+    width: 155,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  cleanProductCardDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  cleanProductImgWrap: {
+    width: '100%',
+    height: 170,
+    backgroundColor: '#F8FAFC',
+    position: 'relative',
+  },
+  cleanProductImg: {
+    width: '100%',
+    height: '100%',
+  },
+  cleanWishBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cleanDiscountBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  cleanDiscountText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  cleanProductInfo: {
+    padding: 10,
+    gap: 4,
+  },
+  cleanProductTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0F172A',
+    lineHeight: 16,
+  },
+  cleanProductPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  cleanProductPrice: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  cleanProductOldPrice: {
+    fontSize: 11,
+    color: '#94A3B8',
+    textDecorationLine: 'line-through',
+    fontWeight: '500',
+  },
+  cleanRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  cleanRatingText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#475569',
+  },
+
+  // Flash Deal Card
+  cleanFlashTimer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(244, 63, 94, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  cleanFlashTimerText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#F43F5E',
+  },
+  cleanFlashCard: {
+    marginHorizontal: 16,
+    borderRadius: 18,
+    overflow: 'hidden',
+    height: 220,
+    position: 'relative',
+  },
+  cleanFlashImg: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+  },
+  cleanFlashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.48)',
+  },
+  cleanFlashBadge: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  cleanFlashBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  cleanFlashDiscountBadge: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  cleanFlashDiscountText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  cleanFlashContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+  },
+  cleanFlashTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    lineHeight: 22,
+  },
+  cleanFlashPrice: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  cleanFlashOldPrice: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.6)',
+    textDecorationLine: 'line-through',
+  },
+  cleanFlashGrabBtn: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  cleanFlashGrabText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+
+  // 2-Column Grid
+  twoColGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  twoColCard: {
+    width: '47.5%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  twoColImgWrap: {
+    width: '100%',
+    height: 160,
+    backgroundColor: '#F8FAFC',
+    position: 'relative',
+  },
+  twoColImg: {
+    width: '100%',
+    height: '100%',
+  },
+  twoColInfo: {
+    padding: 10,
+    gap: 4,
+  },
+  twoColAddBtn: {
+    marginLeft: 'auto',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Trust Strip
+  cleanTrustStrip: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 28,
+    marginBottom: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'space-around',
+  },
+  cleanTrustItem: {
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+  },
+    cleanTrustText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+  },
+
+  // ─── REF* STYLES (Reference-image inspired) ───
+
+  // Header
+  refHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  refHeaderDark: {
+    backgroundColor: '#0F172A',
+    borderBottomColor: '#1E293B',
+  },
+  refMenuBtn: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 4,
+  },
+  refLocationPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    overflow: 'hidden',
+  },
+  refLocationText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1A1A2E',
+    maxWidth: 150,
+  },
+  refHeaderIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  refIconBtn: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  refBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  refBadgeTxt: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  // Scroll
+  refScrollContent: {
+    paddingBottom: 120,
+  },
+
+  // Greeting
+  refGreetingBlock: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  refGreetHello: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#94A3B8',
+    marginBottom: 4,
+  },
+  refGreetQuestion: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#1A1A2E',
+    lineHeight: 30,
+    letterSpacing: -0.5,
+  },
+
+  // Search Bar
+  refSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    gap: 10,
+  },
+  refSearchBarDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  refSearchPlaceholder: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#94A3B8',
+  },
+
+  // Category Pills
+  refCategoryRow: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  refCategoryPill: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 22,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  refCategoryPillActive: {
+    backgroundColor: '#1A1A2E',
+    borderColor: '#1A1A2E',
+  },
+  refCategoryPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  refCategoryPillTextActive: {
+    color: '#FFFFFF',
+  },
+
+  // Banner skeleton
+  refBannerSkeleton: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    height: 190,
+    borderRadius: 18,
+    backgroundColor: '#E2E8F0',
+  },
+
+  // Quick Access Grid
+  refQuickGrid: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  refQuickTile: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#F1F5F9',
+    gap: 7,
+    shadowColor: '#1A1A2E',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  refQuickTileDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  refQuickIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refQuickLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+  },
+
+  // Section Header Row
+  refSectionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 14,
+  },
+  refSectionTitle: {
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    letterSpacing: -0.4,
+  },
+  refSeeAll: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+
+  // Product Card (horizontal rail — reference style)
+  refProductCard: {
+    width: 155,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#1A1A2E',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  refProductCardDark: {
+    backgroundColor: '#1E293B',
+  },
+  refProductImgWrap: {
+    width: '100%',
+    height: 160,
+    backgroundColor: '#F8FAFC',
+    position: 'relative',
+  },
+  refProductImg: {
+    width: '100%',
+    height: '100%',
+  },
+  refHeartBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  refDiscountTag: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+  },
+  refDiscountTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  refProductBody: {
+    padding: 12,
+    gap: 5,
+  },
+  refProductName: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1A1A2E',
+    lineHeight: 18,
+  },
+  refProductPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  refProductPrice: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#F97316',  // Orange accent — like the reference
+  },
+  refAddBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1A1A2E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Section Tabs (Mockup Style Solid Pills)
+  refTabsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginTop: 28,
+    marginBottom: 16,
+    gap: 10,
+  },
+  refTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9', // Light gray background for inactive
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refTabDark: {
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+  },
+  refTabActive: {
+    backgroundColor: '#0F172A', // Dark navy/black for active
+  },
+  refTabActiveDark: {
+    backgroundColor: '#FFA451', // Accent orange for active in dark mode
+  },
+  refTabText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  refTabTextActive: {
+    color: '#FFFFFF',
+  },
+
+  // 2-Column Grid under tabs
+  refGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    gap: 12,
+    marginBottom: 4,
+  },
+  refGridCard: {
+    width: '47%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#1A1A2E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  refGridImgWrap: {
+    width: '100%',
+    height: 155,
+    backgroundColor: '#F8FAFC',
+    position: 'relative',
+  },
+  refGridImg: {
+    width: '100%',
+    height: '100%',
+  },
+  refGridBody: {
+    padding: 10,
+    gap: 5,
+  },
+
+  // Flash Deal
+  refFlashTimer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(244,63,94,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  refFlashTimerText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#F43F5E',
+  },
+  refFlashCard: {
+    marginHorizontal: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    height: 230,
+    position: 'relative',
+    marginBottom: 4,
+  },
+  refFlashImg: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+  },
+  refFlashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  refFlashTopRow: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  refFlashTagPill: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  refFlashTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  refFlashDiscountPill: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  refFlashDiscountText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  refFlashBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 18,
+  },
+  refFlashTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    lineHeight: 24,
+  },
+  refFlashPrice: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  refFlashOld: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.55)',
+    textDecorationLine: 'line-through',
+  },
+  refFlashGrabBtn: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    paddingVertical: 9,
+    borderRadius: 22,
+  },
+  refFlashGrabText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1A1A2E',
+  },
+
+  // Trust Strip
+  refTrustStrip: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 28,
+    marginBottom: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 10,
+    borderRadius: 18,
+    backgroundColor: '#FFF7F0',
+    borderWidth: 1.5,
+    borderColor: '#FED7AA',
+    justifyContent: 'space-around',
+  },
+  refTrustItem: {
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+  },
+  refTrustIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(249,115,22,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+    refTrustText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+    lineHeight: 13,
+  },
+
+  // ─── MOCKUP INSPIRED CUSTOM STYLES ───
+
+  // Top header matching mockup
+  newHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 12,
+    backgroundColor: 'transparent',
+  },
+  newHeaderDark: {
+    backgroundColor: 'transparent',
+  },
+
+  // Hero Banner Redesign
+  heroBannerBackground: {
+    width: '100%',
+    height: 390,
+    overflow: 'hidden',
+  },
+  heroBannerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)', // Premium dark slate overlay
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    justifyContent: 'flex-end',
+  },
+  refGreetingBlockHero: {
+    marginBottom: 12,
+    alignSelf: 'stretch',
+  },
+  refGreetQuestionHero: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
+    fontSize: 26,
+    fontWeight: 'bold',
+    lineHeight: 34,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  translucentSearchCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderRadius: 26,
+    height: 52,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+  },
+  translucentSearchPlaceholder: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginLeft: 10,
+    fontWeight: '500',
+  },
+  translucentSearchDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    marginHorizontal: 12,
+  },
+  heroExploreBtn: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginTop: 18,
+    alignSelf: 'flex-start',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  heroExploreBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  headerExploreMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFA451',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    shadowColor: '#FFA451',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  headerExploreMoreText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  newCartBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.45)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  newCartBtnDark: {
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.25,
+  },
+  newCartIconContainer: {
+    position: 'relative',
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newCartBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FFA451',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  newCartBadgeDark: {
+    borderColor: '#0F172A',
+  },
+  newCartBadgeTxt: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+    // iPhone-style floating capsule search bar styles
+  iosSearchCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 26,
+    height: 52,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  iosSearchCapsuleDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+    shadowColor: '#000000',
+    shadowOpacity: 0.3,
+  },
+  iosSearchLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: '100%',
+    gap: 10,
+  },
+  iosSearchPlaceholder: {
+    fontSize: 14,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  iosSearchDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 8,
+  },
+  iosSearchFilterBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+    // Product cards and buttons matching mockup
+  refProductImgSquare: {
+    width: '100%',
+    height: 120,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 12,
+    position: 'relative',
+  },
+  refProductImgInner: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+  },
+  refProductPriceNew: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFA451', // Accent orange for price matching mockup
+  },
+  refHeartBtnNew: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  refAddBtnOutline: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: '#FFA451',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFBF7',
+  },
+
+  // Active tab salad card styles (horizontal list)
+  refGridCardNew: {
+    width: 150,
+    borderRadius: 18,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  refGridImgWrapNew: {
+    width: '100%',
+    height: 110,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginBottom: 8,
+  },
+  refGridImgNew: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+  },
+  refHeartBtnNewGrid: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refGridBodyNew: {
+    gap: 4,
+  },
+  refGridNameNew: {
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#272A3F',
+  },
+  refGridPriceRowNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  refGridPriceNew: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFA451',
+  },
+  refAddBtnSolidNew: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFA451',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Bottom QuickBuy Footer Strip
+  bottomQuickBuyStrip: {
+    height: 48,
+    backgroundColor: '#203437', // Slate dark green-blue color matching mockup
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  bottomQuickBuyLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bottomQuickBuyText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 13,
+    letterSpacing: 0.3,
+  },
+  bottomQuickBuyPill: {
+    backgroundColor: 'rgba(255, 164, 81, 0.15)',
+    borderWidth: 1.2,
+    borderColor: '#FFA451',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  bottomQuickBuyPillText: {
+    color: '#FFA451',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  bottomQuickBuyRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+    bottomQuickBuySeeAll: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  refEmptyContainer: {
+    width: 260,
+    height: 140,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    marginHorizontal: 4,
+  },
+  refEmptyContainerDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+    refEmptyText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#94A3B8',
+    textAlign: 'center',
+    },
 });

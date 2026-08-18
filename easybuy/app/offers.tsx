@@ -172,7 +172,7 @@ export default function OffersScreen() {
 
           <TouchableOpacity
             style={[styles.iconBtn, isDarkMode && styles.iconBtnDark]}
-            onPress={openCart}
+            onPress={() => router.push("/cart" as any)}
             activeOpacity={0.8}
           >
             <Ionicons name="cart-outline" size={18} color={isDarkMode ? '#F8FAFC' : '#0F172A'} />

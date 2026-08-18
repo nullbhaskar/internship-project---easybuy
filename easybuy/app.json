@@ -24,7 +24,8 @@
         "foregroundImage": "./assets/images/easybuy_logo.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.nullbhaskar.easybuy"
     },
     "web": {
       "output": "static",
@@ -48,6 +49,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "027dcb56-0b7f-41a0-aed7-465fcf80f077"
+      }
     }
   }
 }

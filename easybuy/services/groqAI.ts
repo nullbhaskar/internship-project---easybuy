@@ -169,7 +169,182 @@ export async function parseVoiceToCart(spokenText: string): Promise<ParsedCartIt
   return [];
 }
 
-// ─── 3. AI SHOPPING SUGGESTION ──────────────────────────────────────────────
+// ─── 3. AI SHOPPING SUGGESTION & VOICE SEARCH PARSER ───────────────────────
+
+export interface ParsedVoiceSearch {
+  cleanQuery: string;
+  category?: string;
+  maxPrice?: number;
+  isQuickBuy?: boolean;
+}
+
+/**
+ * Parses natural language voice search queries into clean search keywords and filters.
+ * e.g. "Mujhe running shoes dikhao 2000 ke andar" -> { cleanQuery: "running shoes", maxPrice: 2000 }
+ */
+export async function parseVoiceSearchQuery(spokenText: string): Promise<ParsedVoiceSearch> {
+  try {
+    const reply = await callGroq(
+      [
+        {
+          role: 'system',
+          content:
+            'You are an Indian e-commerce search query cleaner for EasyBuy. ' +
+            'Convert natural language/voice input into clean search keywords and extract filters if present. ' +
+            'Reply ONLY with valid JSON: { "cleanQuery": string, "category"?: string, "maxPrice"?: number, "isQuickBuy"?: boolean } ' +
+            'No markdown, no explanation.',
+        },
+        {
+          role: 'user',
+          content: `User voice search: "${spokenText}"`,
+        },
+      ],
+      150
+    );
+
+    const parsed = JSON.parse(reply);
+    if (parsed && parsed.cleanQuery) {
+      return parsed;
+    }
+  } catch {}
+
+  // Basic fallback
+  const clean = spokenText
+    .replace(/(mujhe|dikhao|chahiye|search|show me|find|buy|want|under|below|ke andar)/gi, '')
+    .trim();
+  return { cleanQuery: clean || spokenText };
+}
+
+// ─── 4. AI RECIPE & OCCASION BUNDLER ────────────────────────────────────────
+
+export interface RecipeIngredient {
+  id: string;
+  name: string;
+  quantity: string;
+  price: number;
+  category: string;
+  image?: string;
+  icon?: string;
+}
+
+export interface RecipeOccasionBundle {
+  isRecipe: boolean;
+  recipeName: string;
+  emoji: string;
+  tagline: string;
+  servings: string;
+  prepTime: string;
+  steps: string[];
+  ingredients: RecipeIngredient[];
+  totalPrice: number;
+}
+
+/**
+ * Parses user spoken recipes, dishes, or occasions into a complete ready-to-cook ingredient kit.
+ * e.g. "Chai aur pakora banana hai 4 logo ke liye" -> Chai, Milk, Besan, Onion, Oil
+ */
+export async function generateRecipeOccasionBundle(
+  spokenText: string,
+  stateName?: string
+): Promise<RecipeOccasionBundle | null> {
+  const locationHint = stateName ? ` The user is in ${stateName}, India.` : ' The user is in India.';
+
+  try {
+    const reply = await callGroq(
+      [
+        {
+          role: 'system',
+          content:
+            'You are an Indian Quick Commerce Recipe & Grocery Bundler for EasyBuy. ' +
+            'Convert dishes, meals, or occasions into exact grocery ingredients available in an Indian supermarket. ' +
+            'Reply ONLY with valid JSON with this exact structure: ' +
+            '{\n' +
+            '  "isRecipe": true,\n' +
+            '  "recipeName": "Title of dish or bundle (e.g. Chai & Crispy Onion Pakoras)",\n' +
+            '  "emoji": "🍲",\n' +
+            '  "tagline": "Short description of the kit",\n' +
+            '  "servings": "Serves 2-4",\n' +
+            '  "prepTime": "15 mins",\n' +
+            '  "steps": ["Step 1 quick instruction", "Step 2", "Step 3"],\n' +
+            '  "ingredients": [\n' +
+            '    { "id": "ing_1", "name": "Fresh Milk (500ml)", "quantity": "1 pouch", "price": 33, "category": "grocery" },\n' +
+            '    { "id": "ing_2", "name": "Chana Besan (500g)", "quantity": "1 pack", "price": 55, "category": "grocery" }\n' +
+            '  ]\n' +
+            '}\n' +
+            'No markdown, no backticks, only pure JSON.',
+        },
+        {
+          role: 'user',
+          content: `User wants to make or buy: "${spokenText}".${locationHint} Create a complete ingredient kit.`,
+        },
+      ],
+      400
+    );
+
+    const parsed = JSON.parse(reply);
+    if (parsed && parsed.recipeName && Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0) {
+      const totalPrice = parsed.ingredients.reduce((sum: number, item: any) => sum + (Number(item.price) || 40), 0);
+      return {
+        ...parsed,
+        totalPrice,
+      };
+    }
+  } catch (e) {
+    console.log('[GroqAI] Recipe parsing fallback used:', e);
+  }
+
+  // Smart Fallback for popular Indian dishes if offline/error
+  const q = spokenText.toLowerCase();
+  if (q.includes('chai') || q.includes('tea') || q.includes('pakora') || q.includes('pakoda')) {
+    return {
+      isRecipe: true,
+      recipeName: 'Chai & Crispy Onion Pakoras Kit',
+      emoji: '🫖',
+      tagline: 'Monsoon special evening snacks kit with masala chai and crunchy pakoras',
+      servings: 'Serves 3-4',
+      prepTime: '15 Mins',
+      steps: [
+        '1. Thinly slice onions and mix with besan, green chillies & spices.',
+        '2. Deep fry spoonfuls in hot mustard oil until golden brown.',
+        '3. Brew aromatic ginger chai with fresh milk and serve piping hot!'
+      ],
+      ingredients: [
+        { id: 'chai_1', name: 'Tata Tea Premium Chai Patti (250g)', quantity: '1 pack', price: 95, category: 'grocery', image: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=400' },
+        { id: 'chai_2', name: 'Fresh Full Cream Milk (500ml)', quantity: '1 pouch', price: 34, category: 'grocery', image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400' },
+        { id: 'chai_3', name: 'Fortune Pure Chana Besan (500g)', quantity: '1 pack', price: 58, category: 'grocery', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400' },
+        { id: 'chai_4', name: 'Fresh Red Onions (1kg)', quantity: '1 kg', price: 38, category: 'grocery', image: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=400' },
+        { id: 'chai_5', name: 'Fortune Mustard Oil Kachi Ghani (500ml)', quantity: '1 bottle', price: 85, category: 'grocery', image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=400' },
+      ],
+      totalPrice: 310,
+    };
+  }
+
+  if (q.includes('pav') || q.includes('bhaji')) {
+    return {
+      isRecipe: true,
+      recipeName: 'Mumbai Style Butter Pav Bhaji Kit',
+      emoji: '🍛',
+      tagline: 'Street-style spicy mashed vegetable bhaji with toasted butter pav',
+      servings: 'Serves 4',
+      prepTime: '20 Mins',
+      steps: [
+        '1. Boil potatoes & veggies, mash with Pav Bhaji masala & butter.',
+        '2. Simmer with tomatoes, onions and red chilli powder.',
+        '3. Toast soft pav buns on a tawa with generous butter and coriander.'
+      ],
+      ingredients: [
+        { id: 'pb_1', name: 'Fresh Bakery Pav Buns (Pack of 8)', quantity: '1 pack', price: 40, category: 'grocery', image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=400' },
+        { id: 'pb_2', name: 'Amul Butter 100g', quantity: '1 pack', price: 56, category: 'grocery', image: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=400' },
+        { id: 'pb_3', name: 'Everest Pav Bhaji Masala (100g)', quantity: '1 box', price: 68, category: 'grocery', image: 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=400' },
+        { id: 'pb_4', name: 'Fresh Hybrid Tomatoes (500g)', quantity: '500g', price: 25, category: 'grocery', image: 'https://images.unsplash.com/photo-1546470427-227c7369a478?w=400' },
+        { id: 'pb_5', name: 'Fresh Potatoes (1kg)', quantity: '1 kg', price: 30, category: 'grocery', image: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400' },
+      ],
+      totalPrice: 219,
+    };
+  }
+
+  return null;
+}
 
 /**
  * Ask EasyBuy AI for product recommendations based on a natural language query.

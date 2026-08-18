@@ -7,12 +7,14 @@ import * as Haptics from 'expo-haptics';
 interface ProductTransitionWrapperProps extends TouchableOpacityProps {
   productId: string;
   imageUrl: string;
+  productParams?: Record<string, any>;
   children: React.ReactNode;
 }
 
 export const ProductTransitionWrapper: React.FC<ProductTransitionWrapperProps> = ({
   productId,
   imageUrl,
+  productParams,
   children,
   onPress,
   style,
@@ -25,6 +27,16 @@ export const ProductTransitionWrapper: React.FC<ProductTransitionWrapperProps> =
     // 1. Tactile compression press feedback
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
+    const navigateToPdp = () => {
+      router.push({
+        pathname: '/product/[id]',
+        params: {
+          id: productId,
+          ...(productParams || {}),
+        },
+      } as any);
+    };
+
     if (containerRef.current) {
       containerRef.current.measureInWindow((x, y, width, height) => {
         // Fallback checks
@@ -33,7 +45,7 @@ export const ProductTransitionWrapper: React.FC<ProductTransitionWrapperProps> =
           if (onPress) {
             onPress(event);
           } else {
-            router.push(`/product/${productId}` as any);
+            navigateToPdp();
           }
           return;
         }
@@ -59,14 +71,14 @@ export const ProductTransitionWrapper: React.FC<ProductTransitionWrapperProps> =
         if (onPress) {
           onPress(event);
         } else {
-          router.push(`/product/${productId}` as any);
+          navigateToPdp();
         }
       });
     } else {
       if (onPress) {
         onPress(event);
       } else {
-        router.push(`/product/${productId}` as any);
+        navigateToPdp();
       }
     }
   };

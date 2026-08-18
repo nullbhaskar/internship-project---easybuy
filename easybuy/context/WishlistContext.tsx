@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { auth, db } from '../services/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useAuth } from './AuthContext';
 
 export interface WishlistItem {
   id: string;
@@ -41,10 +42,16 @@ const WishlistContext = createContext<WishlistContextType>({
 export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
+  const { isGuest, isAuthenticated, requireAuth } = useAuth();
 
-  // Load Wishlist on mount
+  // Load Wishlist on mount / auth change
   useEffect(() => {
     async function loadWishlistData() {
+      if (isGuest) {
+        setWishlistItems([]);
+        return;
+      }
+
       try {
         const localData = await AsyncStorage.getItem('easybuy_wishlist_items');
         if (localData) {
@@ -68,9 +75,10 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }
     loadWishlistData();
-  }, []);
+  }, [isGuest, isAuthenticated]);
 
   const persistWishlist = async (items: WishlistItem[]) => {
+    if (isGuest || !auth.currentUser) return;
     try {
       await AsyncStorage.setItem('easybuy_wishlist_items', JSON.stringify(items));
       const currentUser = auth.currentUser;
@@ -88,6 +96,10 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const toggleWishlist = (item: WishlistItem) => {
+    if (!requireAuth('save items to your wishlist')) {
+      return;
+    }
+
     const exists = isInWishlist(item.id);
     if (exists) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -107,6 +119,7 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const removeFromWishlist = (id: string) => {
+    if (isGuest) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setWishlistItems((prev) => {
       const updated = prev.filter((i) => i.id !== id);
@@ -116,13 +129,16 @@ export const WishlistProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const clearWishlist = () => {
+    if (isGuest) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     setWishlistItems([]);
     persistWishlist([]);
   };
 
   const openWishlist = () => {
-    Haptics.selectionAsync().catch(() => {});
+    if (!requireAuth('view your saved wishlist')) {
+      return;
+    }
     setIsWishlistOpen(true);
   };
 

@@ -276,7 +276,7 @@ const QB_CATEGORIES: QBCategory[] = [
 
 export default function QuickBuyScreen() {
   const router = useRouter();
-  const { openCart, totalItems: cartCount } = useCart();
+  const { openCart, totalItems: cartCount, addToCart } = useCart();
   const { openWishlist, totalWishlistItems } = useWishlist();
   const { selectedAddress, openLocationModal } = useAddress();
 
@@ -375,15 +375,10 @@ export default function QuickBuyScreen() {
 
   const handleAddPress = (product: QBProduct) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setQuickAddProduct({
-      id: product.id,
-      title: product.name,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      image: product.image,
-      category: 'quickbuy',
-    });
-    setQuickAddVisible(true);
+    router.push({
+      pathname: '/product/[id]',
+      params: { id: product.id }
+    } as any);
   };
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
@@ -448,7 +443,7 @@ export default function QuickBuyScreen() {
 
               <TouchableOpacity
                 style={styles.headerCircleBtn}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); openCart(); }}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); router.push("/cart" as any); }}
                 activeOpacity={0.8}
               >
                 <Ionicons name="cart-outline" size={19} color="#1E293B" />
@@ -817,7 +812,18 @@ export default function QuickBuyScreen() {
         visible={quickAddVisible}
         product={quickAddProduct}
         onClose={() => setQuickAddVisible(false)}
-        onAddToCart={() => { setQuickAddVisible(false); }}
+        onAddToCart={(prod, size, color, qty) => {
+          addToCart({
+            id: prod.id,
+            title: prod.title,
+            price: prod.price,
+            originalPrice: prod.originalPrice,
+            image: prod.image,
+            selectedVariant: `${size} / ${color}`,
+            quantity: qty,
+          } as any);
+          setQuickAddVisible(false);
+        }}
       />
       <LocationPickerModal />
     </>

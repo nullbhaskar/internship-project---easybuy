@@ -1,111 +1,301 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-export interface TimeGreetingPair {
-  id: string;
-  greeting: (name: string) => string;
-  subtitle: string;
+export interface WelcomeGreetingContext {
+  userName?: string;
+  isNewUser?: boolean;
+  weather?: 'rain' | 'hot' | 'cold' | 'pleasant';
+  campaign?: 'flash' | 'daily' | 'weekend' | 'festival' | 'end-season' | 'new-arrivals' | 'limited' | 'none';
+  recentCategory?: string;
+  wishlistCount?: number;
+  hasRecentOrders?: boolean;
 }
 
-// 🌅 EARLY MORNING (5:00 AM – 7:59 AM)
-const EARLY_MORNING_PAIRS: TimeGreetingPair[] = [
-  { id: 'em1', greeting: (name) => `🌅 Rise & shine, ${name}!`, subtitle: 'New day, new deals waiting for you.' },
-  { id: 'em2', greeting: (name) => `☀️ Good morning, ${name}!`, subtitle: 'Let’s make today awesome.' },
-  { id: 'em3', greeting: (name) => `☕ Wakey wakey, ${name}!`, subtitle: 'Coffee first, shopping later.' },
-  { id: 'em4', greeting: (name) => `✨ Fresh start, ${name}!`, subtitle: 'Your wishlist is waiting.' },
-  { id: 'em5', greeting: (name) => `🚀 Ready for today, ${name}?`, subtitle: 'Early bird special offers are live.' },
-];
+// ─── APPLE-LEVEL PREMIUM DYNAMIC WELCOME MESSAGE LIBRARY ───
+// Large collection of copy templates following mature, elegant, and minimal tone
+const GREETINGS_DB = {
+  festivals: {
+    diwali: [
+      (name: string) => `Wishing you a peaceful Diwali, ${name}. Celebrate today with our select fruit combinations.`,
+      (name: string) => `Happy Diwali, ${name}. Bring brightness and fresh abundance to your home.`,
+    ],
+    christmas: [
+      (name: string) => `${name}, wishing you a warm and quiet Christmas. Explore today's special collection.`,
+      (name: string) => `Merry Christmas, ${name}. Start the festive morning with a refreshing choice.`,
+    ],
+    holi: [
+      (name: string) => `Wishing you a joyful Holi, ${name}. Bringing fresh colors to your table today.`,
+      (name: string) => `Happy Holi, ${name}. Refresh your celebrations with our seasonal selections.`,
+    ],
+    newyear: [
+      (name: string) => `Happy New Year, ${name}. Start the year fresh with our seasonal harvest.`,
+      (name: string) => `Wishing you a fresh start this New Year, ${name}. Discover what is new today.`,
+    ],
+    valentines: [
+      (name: string) => `${name}, share something sweet today. Explore our Valentine fruit pairings.`,
+      (name: string) => `Celebrate today with someone special, ${name}. Discover our signature sweet selections.`,
+    ],
+    national: [
+      (name: string) => `${name}, celebrating our national heritage today. Explore local organic harvests.`,
+      (name: string) => `Honoring the day, ${name}. Discover select seasonal fruits from local farms.`,
+    ],
+    eid: [
+      (name: string) => `Eid Mubarak, ${name}. Wishing you peace, wellness, and abundance today.`,
+      (name: string) => `Celebrate Eid with loved ones, ${name}. Explore today's premium selections.`,
+    ],
+    navratri: [
+      (name: string) => `${name}, wishing you auspicious Navratri days. Explore our pure fasting fruits.`,
+      (name: string) => `A pious Navratri to you, ${name}. View our fresh, clean fasting options.`,
+    ],
+    pongal: [
+      (name: string) => `Happy Pongal, ${name}. Celebrating a fresh harvest season with you today.`,
+      (name: string) => `Wishing you a bountiful Makar Sankranti, ${name}. Enjoy the fresh harvest.`,
+    ],
+  },
+  campaigns: {
+    flash: [
+      (name: string) => `${name}, today's limited flash values are now active. Explore special pricing.`,
+      (name: string) => `A quick update, ${name}: select flash drops are now live for a brief window.`,
+    ],
+    daily: [
+      (name: string) => `${name}, today's selections are refreshed. Discover daily pricing changes.`,
+      (name: string) => `Explore daily curated fresh arrivals, ${name}. Replaced and updated morning.`,
+    ],
+    weekend: [
+      (name: string) => `${name}, weekend selections are active. Explore special price drops.`,
+      (name: string) => `Your weekend starts here, ${name}. Discover our premium weekend arrangements.`,
+    ],
+    festival: [
+      (name: string) => `${name}, the festival collection is open. View today's recommendations.`,
+      (name: string) => `Add a festive touch to your table, ${name}. Explore today's premium combos.`,
+    ],
+    'end-season': [
+      (name: string) => `${name}, end of season values are active. Refresh your catalog today.`,
+      (name: string) => `Final season offerings, ${name}. Grasp the remaining harvests.`,
+    ],
+    'new-arrivals': [
+      (name: string) => `Explore our freshly arrived selections today, ${name}.`,
+      (name: string) => `New items added this morning, ${name}. Be the first to try.`,
+    ],
+  },
+  personalized: {
+    new: [
+      (name: string) => `Welcome to EasyBuy, ${name}. Let's find your first fresh selection.`,
+      (name: string) => `Hello ${name}. Welcome to a simpler way to shop fresh.`,
+    ],
+    returning: [
+      (name: string) => `Welcome back, ${name}. What can we find for you today?`,
+      (name: string) => `Good to see you again, ${name}. Your usual favorites are ready.`,
+    ],
+    wishlist: [
+      (name: string) => `${name}, items in your wishlist have been refreshed. View updates.`,
+      (name: string) => `An item you saved is currently high in stock, ${name}. View details.`,
+    ],
+    recent: (category: string) => [
+      (name: string) => `${name}, we updated our ${category} list. Explore recommendations.`,
+      (name: string) => `Interested in ${category}? View our latest additions, ${name}.`,
+    ],
+  },
+  weather: {
+    rain: [
+      (name: string) => `Staying inside today, ${name}? Let us bring the freshness to you.`,
+      (name: string) => `Quiet rainy day, ${name}. Find everything you need right here.`,
+    ],
+    hot: [
+      (name: string) => `Stay cool today, ${name}. Explore our refreshing cold combos.`,
+      (name: string) => `Beat the heat, ${name}. Refreshing summer choices await.`,
+    ],
+    cold: [
+      (name: string) => `Stay warm today, ${name}. Fuel your day with seasonal selections.`,
+      (name: string) => `Cold morning, ${name}. Keep healthy with vitamin-rich choices.`,
+    ],
+    pleasant: [
+      (name: string) => `It is a beautiful day, ${name}. What shall we find for you?`,
+      (name: string) => `Enjoying the pleasant weather, ${name}? Explore today's picks.`,
+    ],
+  },
+  days: {
+    monday: [
+      (name: string) => `A fresh week starts today, ${name}. Set your goals with a healthy start.`,
+      (name: string) => `Good morning, ${name}. Let's make this week a fresh start.`,
+    ],
+    friday: [
+      (name: string) => `The weekend is almost here, ${name}. Finish the week strong.`,
+      (name: string) => `Unwind after a busy week, ${name}. Explore Friday specials.`,
+    ],
+    saturday: [
+      (name: string) => `${name}, your Saturday starts here. Explore today's pairings.`,
+      (name: string) => `A quiet Saturday morning, ${name}. Slow down and enjoy the day.`,
+    ],
+    sunday: [
+      (name: string) => `A slow, relaxed Sunday, ${name}. Take time to refresh today.`,
+      (name: string) => `Sundays are for resting, ${name}. Let us handle your needs today.`,
+    ],
+    midweek: [
+      (name: string) => `${name}, let's make this day productive. Discover fresh choices.`,
+      (name: string) => `Middle of the week, ${name}. Keep your energy high with our fresh picks.`,
+    ],
+  },
+  times: {
+    earlyMorning: [
+      (name: string) => `Good morning, ${name}. Start your day with a fresh, quiet selection.`,
+      (name: string) => `Early morning quiet, ${name}. Let's prepare for the day ahead.`,
+    ],
+    morning: [
+      (name: string) => `Good morning, ${name}. What can we find for you today?`,
+      (name: string) => `Good morning, ${name}. Start your day with a healthy choice.`,
+    ],
+    afternoon: [
+      (name: string) => `Good afternoon, ${name}. Take a refreshing break with us.`,
+      (name: string) => `Good afternoon, ${name}. Refresh your day with today's picks.`,
+    ],
+    evening: [
+      (name: string) => `Good evening, ${name}. Unwind with today's selections.`,
+      (name: string) => `Good evening, ${name}. What are you looking for tonight?`,
+    ],
+    night: [
+      (name: string) => `${name}, looking for something before the day ends?`,
+      (name: string) => `Quiet night in, ${name}. Explore what is available.`,
+    ],
+    lateNight: [
+      (name: string) => `Up late, ${name}? Let us help you find what you need.`,
+      (name: string) => `Late night thoughts, ${name}. Browse our quiet hours catalog.`,
+    ],
+  },
+  fallback: [
+    (name: string) => `Hello ${name}. Discover fresh, healthy choices curated for you.`,
+    (name: string) => `What can we find for you today, ${name}?`,
+  ],
+};
 
-// ☀️ MORNING (8:00 AM – 11:59 AM)
-const MORNING_PAIRS: TimeGreetingPair[] = [
-  { id: 'm1', greeting: (name) => `👋 Hey, ${name}!`, subtitle: 'Let’s get today rolling.' },
-  { id: 'm2', greeting: (name) => `😎 Yo, ${name}!`, subtitle: 'Time to grab some deals.' },
-  { id: 'm3', greeting: (name) => `✨ Morning vibes, ${name}!`, subtitle: 'Fresh drops just landed.' },
-  { id: 'm4', greeting: (name) => `🙌 Good to see you, ${name}!`, subtitle: 'Your daily picks are ready.' },
-  { id: 'm5', greeting: (name) => `⚡ Ready to shop, ${name}?`, subtitle: 'Best offers of the morning.' },
-];
-
-// 🌞 AFTERNOON (12:00 PM – 4:59 PM)
-const AFTERNOON_PAIRS: TimeGreetingPair[] = [
-  { id: 'a1', greeting: (name) => `🌞 Good afternoon, ${name}!`, subtitle: 'Hope your day’s going great.' },
-  { id: 'a2', greeting: (name) => `☕ Take a break, ${name}!`, subtitle: 'Grab what you need today.' },
-  { id: 'a3', greeting: (name) => `🔥 What’s next, ${name}?`, subtitle: 'Fresh offers just dropped.' },
-  { id: 'a4', greeting: (name) => `✨ Ready for a win, ${name}?`, subtitle: 'Take a quick shopping break.' },
-  { id: 'a5', greeting: (name) => `📦 Need anything today, ${name}?`, subtitle: 'Fast 10-15 min delivery ready.' },
-];
-
-// 🌇 EVENING (5:00 PM – 7:59 PM)
-const EVENING_PAIRS: TimeGreetingPair[] = [
-  { id: 'e1', greeting: (name) => `🌇 Evening, ${name}!`, subtitle: 'Time to unwind with fresh finds.' },
-  { id: 'e2', greeting: (name) => `✨ Welcome back, ${name}!`, subtitle: 'Relax, we’ve got today’s best deals.' },
-  { id: 'e3', greeting: (name) => `🎉 You’re back, ${name}!`, subtitle: 'Evening shopping hits different.' },
-  { id: 'e4', greeting: (name) => `🌆 Evening vibes, ${name}!`, subtitle: 'Time for something new.' },
-  { id: 'e5', greeting: (name) => `🎁 Treat yourself, ${name}!`, subtitle: 'Special evening price drops.' },
-];
-
-// 🌙 NIGHT (8:00 PM – 11:59 PM)
-const NIGHT_PAIRS: TimeGreetingPair[] = [
-  { id: 'n1', greeting: (name) => `🌙 Back again, ${name}?`, subtitle: 'Night deals are live right now.' },
-  { id: 'n2', greeting: (name) => `🦉 Night owl, ${name}?`, subtitle: 'Shop before you sleep.' },
-  { id: 'n3', greeting: (name) => `✨ Late-night shopping, ${name}?`, subtitle: 'Your cart misses you.' },
-  { id: 'n4', greeting: (name) => ` 👀 Still awake, ${name}?`, subtitle: 'One last scroll before bed?' },
-  { id: 'n5', greeting: (name) => `🌌 Let’s find something cool, ${name}!`, subtitle: 'Midnight arrivals ready.' },
-];
-
-// 🌌 MIDNIGHT (12:00 AM – 4:59 AM)
-const MIDNIGHT_PAIRS: TimeGreetingPair[] = [
-  { id: 'md1', greeting: (name) => `🌌 Burning the midnight oil, ${name}?`, subtitle: 'You’re one of the night crew.' },
-  { id: 'md2', greeting: (name) => `👀 You’re up late, ${name}!`, subtitle: 'Quiet hours, better deals.' },
-  { id: 'md3', greeting: (name) => `🧭 Midnight explorer, ${name}!`, subtitle: 'Can’t sleep? Let’s browse.' },
-  { id: 'md4', greeting: (name) => `🌙 Can’t sleep, ${name}?`, subtitle: 'Midnight finds hit differently.' },
-  { id: 'md5', greeting: (name) => `🔋 Night mode activated, ${name}!`, subtitle: 'Secret late night drops.' },
-];
-
-const LAST_GREETING_KEY = 'easybuy_last_greeting_id';
-
-export async function getHumanTimeGreeting(userName: string = 'Bhaskar'): Promise<{ greeting: string; subtitle: string; id: string }> {
-  // Determine current Indian Time (IST) hour (0 - 23)
+// ─── PRIORITY ENGINE DETERMINATION ───
+export function getDynamicWelcomeMessage(
+  userName: string = 'Bhaskar',
+  context: WelcomeGreetingContext = {}
+): string {
+  const name = userName || 'Bhaskar';
   const now = new Date();
+  const month = now.getMonth(); // 0-11
+  const date = now.getDate(); // 1-31
+  const day = now.getDay(); // 0 (Sun) - 6 (Sat)
   const hour = now.getHours();
 
-  let currentSlotPairs: TimeGreetingPair[] = MORNING_PAIRS;
-
-  if (hour >= 5 && hour < 8) {
-    currentSlotPairs = EARLY_MORNING_PAIRS;
-  } else if (hour >= 8 && hour < 12) {
-    currentSlotPairs = MORNING_PAIRS;
-  } else if (hour >= 12 && hour < 17) {
-    currentSlotPairs = AFTERNOON_PAIRS;
-  } else if (hour >= 17 && hour < 20) {
-    currentSlotPairs = EVENING_PAIRS;
-  } else if (hour >= 20 && hour <= 23) {
-    currentSlotPairs = NIGHT_PAIRS;
-  } else {
-    // 00:00 to 04:59
-    currentSlotPairs = MIDNIGHT_PAIRS;
+  // 1. Calendar / Special Event check (Diwali, Holi, Christmas, etc.)
+  if (month === 10 && date >= 5 && date <= 12) {
+    return selectRandomCopy(GREETINGS_DB.festivals.diwali, name);
+  }
+  if (month === 11 && date === 25) {
+    return selectRandomCopy(GREETINGS_DB.festivals.christmas, name);
+  }
+  if (month === 2 && date >= 10 && date <= 16) {
+    return selectRandomCopy(GREETINGS_DB.festivals.holi, name);
+  }
+  if (month === 0 && date === 1) {
+    return selectRandomCopy(GREETINGS_DB.festivals.newyear, name);
+  }
+  if (month === 1 && date === 14) {
+    return selectRandomCopy(GREETINGS_DB.festivals.valentines, name);
+  }
+  if ((month === 0 && date === 26) || (month === 7 && date === 15)) {
+    return selectRandomCopy(GREETINGS_DB.festivals.national, name);
+  }
+  if (month === 7 && date >= 25 && date <= 31) {
+    return selectRandomCopy(GREETINGS_DB.festivals.pongal, name); // Raksha bandhan / regional
+  }
+  if (month === 8 && date >= 2 && date <= 7) {
+    return selectRandomCopy(GREETINGS_DB.festivals.pongal, name); // Onam approximate
+  }
+  if (month === 9 && date >= 12 && date <= 22) {
+    return selectRandomCopy(GREETINGS_DB.festivals.navratri, name);
+  }
+  if (month === 0 && date === 14) {
+    return selectRandomCopy(GREETINGS_DB.festivals.pongal, name);
   }
 
-  let lastId = '';
-  try {
-    lastId = (await AsyncStorage.getItem(LAST_GREETING_KEY)) || '';
-  } catch (e) {
-    console.log('Error reading last greeting ID:', e);
+  // 2. Shopping Campaign check
+  if (context.campaign && context.campaign !== 'none') {
+    const list = GREETINGS_DB.campaigns[context.campaign as keyof typeof GREETINGS_DB.campaigns];
+    if (list) {
+      return selectRandomCopy(list, name);
+    }
   }
 
-  // Filter out last shown ID to prevent consecutive repeats
-  const availablePairs = currentSlotPairs.filter((p) => p.id !== lastId);
-  const pool = availablePairs.length > 0 ? availablePairs : currentSlotPairs;
-
-  const chosen = pool[Math.floor(Math.random() * pool.length)];
-
-  try {
-    await AsyncStorage.setItem(LAST_GREETING_KEY, chosen.id);
-  } catch (e) {
-    console.log('Error saving last greeting ID:', e);
+  // 3. Personalized Context check
+  if (context.wishlistCount && context.wishlistCount > 0) {
+    return selectRandomCopy(GREETINGS_DB.personalized.wishlist, name);
+  }
+  if (context.recentCategory) {
+    const templates = GREETINGS_DB.personalized.recent(context.recentCategory);
+    return selectRandomCopy(templates, name);
+  }
+  if (context.isNewUser) {
+    return selectRandomCopy(GREETINGS_DB.personalized.new, name);
   }
 
-  return {
-    greeting: chosen.greeting(userName),
-    subtitle: chosen.subtitle,
-    id: chosen.id,
-  };
+  // 4. Weather Context check
+  if (context.weather && context.weather !== 'pleasant') {
+    const list = GREETINGS_DB.weather[context.weather];
+    if (list) {
+      return selectRandomCopy(list, name);
+    }
+  }
+
+  // 1. Time of day check (Ensures evening/afternoon/morning greetings match real local time!)
+  if (hour >= 16 && hour < 21) {
+    // 4:00 PM to 9:00 PM -> Evening
+    return selectRandomCopy([
+      (name: string) => `Good evening, ${name}. Unwind with today's selections.`,
+      (name: string) => `Good evening, ${name}. What are you looking for tonight?`,
+      (name: string) => `Good evening, ${name}. Let's make this week a fresh start.`,
+      (name: string) => `Hope you are having a pleasant evening, ${name}.`,
+    ], name);
+  }
+
+  if (hour >= 12 && hour < 16) {
+    // 12:00 PM to 4:00 PM -> Afternoon
+    return selectRandomCopy([
+      (name: string) => `Good afternoon, ${name}. Take a refreshing break with us.`,
+      (name: string) => `Good afternoon, ${name}. Refresh your day with today's picks.`,
+      (name: string) => `Good afternoon, ${name}. Let's make today productive.`,
+    ], name);
+  }
+
+  if (hour >= 21 || hour < 4) {
+    // 9:00 PM to 4:00 AM -> Night / Late Night
+    return selectRandomCopy([
+      (name: string) => `Good evening, ${name}. Looking for something before the day ends?`,
+      (name: string) => `Quiet night in, ${name}. Explore what is available.`,
+      (name: string) => `Up late, ${name}? Let us help you find what you need.`,
+    ], name);
+  }
+
+  if (hour >= 4 && hour < 7) {
+    return selectRandomCopy(GREETINGS_DB.times.earlyMorning, name);
+  }
+
+  if (hour >= 7 && hour < 12) {
+    return selectRandomCopy(GREETINGS_DB.times.morning, name);
+  }
+
+  // 2. Day of the week check (Monday, Friday, Saturday, Sunday)
+  if (day === 1) {
+    return selectRandomCopy([
+      (name: string) => `A fresh week starts today, ${name}. Set your goals with a healthy start.`,
+      (name: string) => `Good morning, ${name}. Let's make this week a fresh start.`,
+    ], name);
+  }
+  if (day === 5) {
+    return selectRandomCopy(GREETINGS_DB.days.friday, name);
+  }
+  if (day === 6) {
+    return selectRandomCopy(GREETINGS_DB.days.saturday, name);
+  }
+  if (day === 0) {
+    return selectRandomCopy(GREETINGS_DB.days.sunday, name);
+  }
+
+  // 3. Fallback copy
+  return selectRandomCopy(GREETINGS_DB.fallback, name);
+}
+
+function selectRandomCopy(list: Array<(name: string) => string>, name: string): string {
+  const index = Math.floor(Math.random() * list.length);
+  return list[index](name);
 }

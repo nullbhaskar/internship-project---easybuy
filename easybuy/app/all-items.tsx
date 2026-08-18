@@ -458,7 +458,7 @@ export default function AllItemsScreen() {
 
         <View style={styles.headerActions}>
           <TouchableOpacity
-            onPress={openCart}
+            onPress={() => router.push("/cart" as any)}
             style={[styles.headerActionBtn, isDark && styles.headerActionBtnDark]}
             activeOpacity={0.7}
           >

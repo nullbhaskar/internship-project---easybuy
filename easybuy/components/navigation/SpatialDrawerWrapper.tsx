@@ -12,9 +12,11 @@ import {
   Image,
   Easing,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
+
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
@@ -83,10 +85,40 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
     // Header entrance animation
     const headerAnim = useRef(new Animated.Value(0)).current;
 
-    // Menu items stagger animations
-    const itemAnims = useRef(ALL_MENU_ITEMS.map(() => new Animated.Value(0))).current;
+    // Ambient Breathing Background Light Orbs & Shimmer Animations
+    const orbAnim1 = useRef(new Animated.Value(0)).current;
+    const orbAnim2 = useRef(new Animated.Value(0)).current;
+    const badgeShimmer = useRef(new Animated.Value(0.7)).current;
+
+    useEffect(() => {
+      Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(orbAnim1, { toValue: 1, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+            Animated.timing(orbAnim1, { toValue: 0, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          ]),
+          Animated.sequence([
+            Animated.timing(orbAnim2, { toValue: 1, duration: 4800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+            Animated.timing(orbAnim2, { toValue: 0, duration: 4800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          ]),
+          Animated.sequence([
+            Animated.timing(badgeShimmer, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+            Animated.timing(badgeShimmer, { toValue: 0.65, duration: 1800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          ]),
+        ])
+      ).start();
+    }, []);
+
+    const orb1Scale = orbAnim1.interpolate({ inputRange: [0, 1], outputRange: [1.0, 1.28] });
+    const orb1Y = orbAnim1.interpolate({ inputRange: [0, 1], outputRange: [0, -22] });
+    const orb1Opacity = orbAnim1.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+
+    const orb2Scale = orbAnim2.interpolate({ inputRange: [0, 1], outputRange: [1.15, 0.9] });
+    const orb2Y = orbAnim2.interpolate({ inputRange: [0, 1], outputRange: [0, 24] });
+    const orb2Opacity = orbAnim2.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.65] });
 
     const isOpenRef = useRef(false);
+    const itemAnims = useRef(ALL_MENU_ITEMS.map(() => new Animated.Value(0))).current;
 
     const openDrawer = () => {
       isOpenRef.current = true;
@@ -270,9 +302,10 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
           <TouchableOpacity
             style={[
               styles.menuItemRow,
+              isSelected && styles.menuItemRowActive,
               item.isLogout && styles.menuItemRowLogout,
             ]}
-            activeOpacity={0.9}
+            activeOpacity={0.85}
             onPressIn={() => {
               Haptics.selectionAsync().catch(() => {});
               setPressedItemId(item.id);
@@ -284,22 +317,25 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
               closeDrawer();
             }}
           >
+            {/* Left Accent Bar for Active Item */}
+            {isSelected && <View style={styles.activeLeftIndicator} />}
+
             <Ionicons
               name={item.icon as any}
-              size={21}
+              size={20}
               color={
                 item.isLogout
-                  ? '#FF6B6B'
-                  : (isSelected || isPressed)
-                  ? '#FFFFFF'
-                  : 'rgba(255, 255, 255, 0.85)'
+                  ? '#EF4444'
+                  : isSelected
+                  ? '#52C480'
+                  : 'rgba(241, 245, 249, 0.65)'
               }
             />
 
             <Text
               style={[
                 styles.menuItemText,
-                (isSelected || isPressed) && styles.menuItemTextActive,
+                isSelected && styles.menuItemTextActive,
                 item.isLogout && styles.menuItemTextLogout,
               ]}
               numberOfLines={1}
@@ -319,7 +355,7 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
 
     return (
       <View style={styles.container} {...panResponder.panHandlers}>
-        {/* ─── PURE TEXT & ICON FISHEYE MAGNIFICATION SIDE PANEL (NO BOXES) ─── */}
+        {/* ─── TRANSLUCENT FROSTED GLASS SIDE NAVIGATION DRAWER PANEL ─── */}
         <Animated.View
           style={[
             styles.drawerPanel,
@@ -329,6 +365,30 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
             },
           ]}
         >
+          {/* Ambient Animated Liquid Light Orbs (breathing under BlurView) */}
+          <Animated.View
+            style={[
+              styles.ambientOrb1,
+              {
+                opacity: orb1Opacity,
+                transform: [{ scale: orb1Scale }, { translateY: orb1Y }],
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.ambientOrb2,
+              {
+                opacity: orb2Opacity,
+                transform: [{ scale: orb2Scale }, { translateY: orb2Y }],
+              },
+            ]}
+          />
+
+          {/* Frosted Glass Blur & Tint Layers */}
+          <BlurView intensity={45} tint="dark" style={StyleSheet.absoluteFillObject} />
+          <View style={styles.glassTintOverlay} />
+
           <SafeAreaView style={styles.drawerSafeArea}>
             <View style={{ flex: 1 }}>
               {/* Top Header Row: Profile Avatar Pill + VIP Badge */}
@@ -358,14 +418,16 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
                     <Image source={{ uri: userAvatar }} style={styles.avatarImg} />
                   ) : (
                     <View style={styles.avatarCircle}>
-                      <Ionicons name="person-outline" size={20} color="#FFFFFF" />
+                      <Ionicons name="person" size={20} color="#52C480" />
                     </View>
                   )}
                   <View style={styles.headerTextWrap}>
                     <Text style={styles.headerName} numberOfLines={1}>{userName}</Text>
-                    <View style={styles.vipTagPill}>
-                      <Text style={styles.vipTagTxt}>👑 EASYBUY PRO</Text>
-                    </View>
+                    <Text style={styles.headerEmail} numberOfLines={1}>{userEmail}</Text>
+                    <Animated.View style={[styles.vipTagPill, { opacity: badgeShimmer }]}>
+                      <Ionicons name="sparkles" size={10} color="#F6C450" style={{ marginRight: 4 }} />
+                      <Text style={styles.vipTagTxt}>EASYBUY PRO</Text>
+                    </Animated.View>
                   </View>
                 </TouchableOpacity>
               </Animated.View>
@@ -423,31 +485,69 @@ SpatialDrawerWrapper.displayName = 'SpatialDrawerWrapper';
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F4C28', // Rich Clean Vibrant Forest Emerald
+    backgroundColor: '#000000',
   },
   drawerPanel: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: DRAWER_WIDTH,
-    backgroundColor: '#0F4C28',
+    ...StyleSheet.absoluteFillObject,
     zIndex: 1,
+    overflow: 'hidden',
+  },
+  ambientOrb1: {
+    position: 'absolute',
+    top: 20,
+    left: -20,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: '#52C480',
+    shadowColor: '#52C480',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.85,
+    shadowRadius: 40,
+  },
+  ambientOrb2: {
+    position: 'absolute',
+    bottom: 100,
+    left: 40,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: '#F6C450',
+    shadowColor: '#F6C450',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.75,
+    shadowRadius: 35,
+  },
+  glassTintOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)', // Ultra-light transparent glass tint
   },
   drawerSafeArea: {
     flex: 1,
-    paddingLeft: 20,
-    paddingRight: 28,
+    width: DRAWER_WIDTH,
+    paddingLeft: 18,
+    paddingRight: 22,
     paddingTop: 16,
-    paddingBottom: 20,
+    paddingBottom: 22,
     justifyContent: 'space-between',
   },
+
+  // ── Profile Header ──────────────────────────────────────────────
   profileHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    marginBottom: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 18,
+    // Floating Frosted Glass Capsule
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
   },
   avatarBtn: {
     flexDirection: 'row',
@@ -458,100 +558,142 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderWidth: 2,
+    borderColor: '#52C480',
   },
   avatarCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    backgroundColor: 'rgba(82, 196, 128, 0.15)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    borderColor: 'rgba(82, 196, 128, 0.4)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTextWrap: {
-    gap: 3,
+    gap: 2,
+    flex: 1,
   },
   headerName: {
     fontSize: 16,
-    fontWeight: '900',
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontWeight: '700',
     color: '#FFFFFF',
-    letterSpacing: 0.3,
+    letterSpacing: -0.2,
+  },
+  headerEmail: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.55)',
+    marginBottom: 2,
   },
   vipTagPill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(246, 196, 80, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(246, 196, 80, 0.4)',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: 8,
     alignSelf: 'flex-start',
   },
   vipTagTxt: {
     fontSize: 9,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontWeight: '800',
+    color: '#F6C450',
+    letterSpacing: 0.6,
   },
+
+  // ── Menu Items ──────────────────────────────────────────────────
   mainMenuItemsList: {
-    gap: 10,
-    paddingVertical: 6,
+    gap: 6,
+    paddingVertical: 4,
   },
   logoutBottomWrap: {
     marginTop: 'auto',
-    paddingTop: 12,
+    paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   menuItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 11,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderRadius: 14,
-    backgroundColor: 'transparent', // 100% NO BOXES / NO CONTAINERS
-    borderWidth: 0,
-    gap: 16,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
+    gap: 14,
+    position: 'relative',
+  },
+  menuItemRowActive: {
+    // Glowing Emerald Frosted Glass Pill
+    backgroundColor: 'rgba(82, 196, 128, 0.16)',
+    borderColor: 'rgba(82, 196, 128, 0.4)',
+  },
+  activeLeftIndicator: {
+    position: 'absolute',
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 3.5,
+    backgroundColor: '#52C480',
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
   },
   menuItemRowLogout: {
-    paddingVertical: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+    paddingVertical: 11,
   },
   menuItemText: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.2,
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.7)',
+    letterSpacing: -0.1,
   },
   menuItemTextActive: {
+    fontFamily: 'PlusJakartaSans-Bold',
     color: '#FFFFFF',
-    fontWeight: '900',
+    fontWeight: '700',
   },
   menuItemTextLogout: {
-    color: '#FF6B6B',
-    fontWeight: '900',
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: '#EF4444',
+    fontWeight: '700',
   },
   menuBadgePill: {
-    backgroundColor: '#F59E0B',
-    paddingHorizontal: 7,
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: 8,
   },
   menuBadgeText: {
     fontSize: 9,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontWeight: '800',
+    color: '#F59E0B',
+    letterSpacing: 0.5,
   },
+
+  // ── Main Screen Card ────────────────────────────────────────────
   mainScreenContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     zIndex: 2,
-    elevation: 25,
+    elevation: 30,
     shadowColor: '#000000',
-    shadowOffset: { width: -8, height: 12 },
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
+    shadowOffset: { width: -12, height: 16 },
+    shadowOpacity: 0.5,
+    shadowRadius: 30,
   },
   dimOverlay: {
     ...StyleSheet.absoluteFillObject,

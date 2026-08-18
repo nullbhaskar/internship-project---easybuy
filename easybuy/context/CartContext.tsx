@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { auth, db } from '../services/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useAuth } from './AuthContext';
 
 export interface CartItem {
   id: string;
@@ -48,10 +49,16 @@ const CartContext = createContext<CartContextType>({
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const { isGuest, isAuthenticated, requireAuth } = useAuth();
 
-  // Load Cart from AsyncStorage and Firestore on mount
+  // Load Cart from AsyncStorage and Firestore on mount / auth change
   useEffect(() => {
     async function loadCartData() {
+      if (isGuest) {
+        setCartItems([]);
+        return;
+      }
+
       try {
         const localData = await AsyncStorage.getItem('easybuy_cart_items');
         if (localData) {
@@ -75,10 +82,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     loadCartData();
-  }, []);
+  }, [isGuest, isAuthenticated]);
 
   // Save Cart state helper
   const persistCart = async (items: CartItem[]) => {
+    if (isGuest || !auth.currentUser) return;
     try {
       await AsyncStorage.setItem('easybuy_cart_items', JSON.stringify(items));
       const currentUser = auth.currentUser;
@@ -92,6 +100,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addToCart = (item: Omit<CartItem, 'quantity'> & { quantity?: number }) => {
+    if (!requireAuth('add items to your cart')) {
+      return;
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     const addQty = item.quantity || 1;
 
@@ -144,7 +156,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const openCart = () => {
-    Haptics.selectionAsync().catch(() => {});
+    if (!requireAuth('view your shopping cart')) {
+      return;
+    }
     setIsCartOpen(true);
   };
 

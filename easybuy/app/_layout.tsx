@@ -13,8 +13,23 @@ import { WishlistProvider } from '../context/WishlistContext';
 import { CartDrawerModal } from '../components/cart/CartDrawerModal';
 import { WishlistDrawerModal } from '../components/wishlist/WishlistDrawerModal';
 import { LocationPickerModal } from '../components/location/LocationPickerModal';
+import { AdminFloatingBar } from '../components/admin/AdminFloatingBar';
 
 import { ProductTransitionProvider } from '../context/ProductTransitionContext';
+
+import {
+  useFonts,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from '@expo-google-fonts/plus-jakarta-sans';
+import {
+  Outfit_600SemiBold,
+  Outfit_700Bold,
+} from '@expo-google-fonts/outfit';
+
+import { AuthProvider } from '../context/AuthContext';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -41,13 +56,21 @@ export default function RootLayout() {
       ]).start();
 
       try {
-        // Safely load icon fonts with timeout racing to prevent 6000ms fontfaceobserver error
+        // Safely load icon fonts & Google fonts with timeout racing to prevent fontfaceobserver error
         await Promise.race([
-          Font.loadAsync(Ionicons.font),
-          new Promise((resolve) => setTimeout(resolve, 2000)),
+          Font.loadAsync({
+            ...Ionicons.font,
+            'PlusJakartaSans-Medium': PlusJakartaSans_500Medium,
+            'PlusJakartaSans-SemiBold': PlusJakartaSans_600SemiBold,
+            'PlusJakartaSans-Bold': PlusJakartaSans_700Bold,
+            'PlusJakartaSans-ExtraBold': PlusJakartaSans_800ExtraBold,
+            'Outfit-SemiBold': Outfit_600SemiBold,
+            'Outfit-Bold': Outfit_700Bold,
+          }),
+          new Promise((resolve) => setTimeout(resolve, 2500)),
         ]).catch((e) => console.log('Font load fallback activated:', e));
 
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        await new Promise((resolve) => setTimeout(resolve, 600));
       } catch (e) {
         console.warn(e);
       } finally {
@@ -85,32 +108,42 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <AddressProvider>
-          <CartProvider>
-            <WishlistProvider>
-              <ProductTransitionProvider>
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="onboarding" />
-                  <Stack.Screen name="login" />
-                  <Stack.Screen name="register" />
-                  <Stack.Screen name="forgot-password" />
-                  <Stack.Screen name="home" />
-                  <Stack.Screen name="profile" />
-                  <Stack.Screen name="quickbuy" />
-                  <Stack.Screen name="orders" />
-                  <Stack.Screen name="all-items" />
-                  <Stack.Screen name="offers" />
-                  <Stack.Screen name="add-address" />
-                  <Stack.Screen name="product/[id]" options={{ animation: 'none' }} />
-                </Stack>
-                <CartDrawerModal />
-                <WishlistDrawerModal />
-                <LocationPickerModal />
-              </ProductTransitionProvider>
-            </WishlistProvider>
-          </CartProvider>
-        </AddressProvider>
+        <AuthProvider>
+          <AddressProvider>
+            <CartProvider>
+              <WishlistProvider>
+                <ProductTransitionProvider>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      animation: 'slide_from_right',
+                      animationDuration: 240,
+                    }}
+                  >
+                    <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                    <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+                    <Stack.Screen name="login" options={{ animation: 'slide_from_bottom' }} />
+                    <Stack.Screen name="register" options={{ animation: 'slide_from_right' }} />
+                    <Stack.Screen name="forgot-password" options={{ animation: 'slide_from_right' }} />
+                    <Stack.Screen name="admin" options={{ animation: 'slide_from_bottom' }} />
+                    <Stack.Screen name="home" options={{ animation: 'fade' }} />
+                    <Stack.Screen name="profile" options={{ animation: 'fade_from_bottom' }} />
+                    <Stack.Screen name="quickbuy" options={{ animation: 'slide_from_bottom', animationDuration: 260 }} />
+                    <Stack.Screen name="orders" options={{ animation: 'slide_from_right' }} />
+                    <Stack.Screen name="all-items" options={{ animation: 'slide_from_right' }} />
+                    <Stack.Screen name="offers" options={{ animation: 'fade_from_bottom' }} />
+                    <Stack.Screen name="add-address" options={{ animation: 'slide_from_bottom' }} />
+                    <Stack.Screen name="product/[id]" options={{ animation: 'none' }} />
+                  </Stack>
+                  <CartDrawerModal />
+                  <WishlistDrawerModal />
+                  <LocationPickerModal />
+                  <AdminFloatingBar />
+                </ProductTransitionProvider>
+              </WishlistProvider>
+            </CartProvider>
+          </AddressProvider>
+        </AuthProvider>
       </LanguageProvider>
     </ThemeProvider>
   );

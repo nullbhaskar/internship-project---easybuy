@@ -17,6 +17,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useAddress, DeliveryAddress } from '../context/AddressContext';
+import { useAuth } from '../context/AuthContext';
+import { auth } from '../services/firebase';
 
 const { width } = Dimensions.get('window');
 
@@ -43,6 +45,14 @@ const ADDRESS_TYPES = [
 export default function AddAddressScreen() {
   const router = useRouter();
   const { saveAddress } = useAddress();
+  const { isGuest, isAuthenticated, requireAuth } = useAuth();
+
+  React.useEffect(() => {
+    if (isGuest || !auth.currentUser) {
+      requireAuth('save delivery addresses');
+      router.replace('/home');
+    }
+  }, [isGuest, isAuthenticated]);
 
   const [receiverName, setReceiverName] = useState('Bhaskar');
   const [phoneNumber, setPhoneNumber] = useState('+91 9876543210');
@@ -59,7 +69,10 @@ export default function AddAddressScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSave = async () => {
-    if (!houseNumber.trim() && !building.trim()) {
+    if (!requireAuth('save a delivery address')) {
+      return;
+    }
+    if (!receiverName.trim() || !phoneNumber.trim()) {
       Alert.alert('Required Field', 'Please enter your House / Flat Number or Building Name.');
       return;
     }
@@ -102,7 +115,7 @@ export default function AddAddressScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
           <Ionicons name="arrow-back" size={18} color="#0F172A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Delivery Address 📍</Text>
+        <Text style={styles.headerTitle}>Add Delivery Address</Text>
         <View style={{ width: 38 }} />
       </View>
 
@@ -117,7 +130,7 @@ export default function AddAddressScreen() {
           <View style={styles.mapOverlay}>
             <View style={styles.pinBubble}>
               <Ionicons name="location" size={24} color="#EF4444" />
-              <Text style={styles.pinBubbleText}>Order Delivered Here ⚡</Text>
+              <Text style={styles.pinBubbleText}>Order Delivered Here</Text>
             </View>
           </View>
         </View>
@@ -288,7 +301,7 @@ export default function AddAddressScreen() {
             disabled={isSubmitting}
             activeOpacity={0.88}
           >
-            <Text style={styles.saveBtnText}>Save Address & Deliver Here ⚡</Text>
+            <Text style={styles.saveBtnText}>Save Address & Deliver Here</Text>
           </TouchableOpacity>
         </View>
 

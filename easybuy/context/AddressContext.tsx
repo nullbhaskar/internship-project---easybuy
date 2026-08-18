@@ -51,65 +51,23 @@ export const EMPTY_ADDRESS: DeliveryAddress = {
 };
 
 export function sanitizeAddress(addr: Partial<DeliveryAddress> | null): DeliveryAddress {
-  if (!addr || !addr.state) {
+  if (!addr) {
     return EMPTY_ADDRESS;
-  }
-
-  const { stateId, stateName } = normalizeStateToId(addr.state || 'Bihar');
-  const stateObj = INDIAN_STATES_AND_UTS.find((s) => s.id === stateId);
-
-  // 1. Clean City so it belongs to State
-  let city = addr.city || '';
-  if (!city || (stateObj && !stateObj.majorCities.includes(city) && city !== stateObj.capital)) {
-    city = stateObj ? stateObj.majorCities[0] || stateObj.capital : 'Patna';
-  }
-
-  // 2. Clean Locality to avoid State Name repetition
-  let locality = addr.locality || '';
-  if (
-    !locality ||
-    locality.toLowerCase() === stateName.toLowerCase() ||
-    locality.toLowerCase().includes('punjab') ||
-    locality.toLowerCase().includes('bihar') ||
-    locality.toLowerCase().includes('delhi')
-  ) {
-    locality = stateObj ? stateObj.majorCities[1] || 'Central Area' : 'Civil Lines';
-  }
-
-  // 3. Clean Building & House Number
-  let building = addr.building || '';
-  if (
-    !building ||
-    building.toLowerCase().includes('gps location') ||
-    building.toLowerCase() === stateName.toLowerCase() ||
-    building.toLowerCase().includes('punjab') ||
-    building.toLowerCase().includes('bihar')
-  ) {
-    building = locality;
-  }
-
-  let houseNumber = addr.houseNumber || '';
-  if (
-    houseNumber.toLowerCase().includes('punjab') ||
-    houseNumber.toLowerCase().includes('bihar') ||
-    houseNumber.toLowerCase().includes('delhi')
-  ) {
-    houseNumber = '';
   }
 
   return {
     addressId: addr.addressId || `addr_${Date.now()}`,
-    receiverName: addr.receiverName || '',
-    phoneNumber: addr.phoneNumber || '',
-    houseNumber: houseNumber,
-    building: building,
-    street: building,
-    landmark: addr.landmark || 'Current Location',
-    locality: locality,
-    city: city,
-    state: stateName,
+    receiverName: addr.receiverName || 'Bhaskar',
+    phoneNumber: addr.phoneNumber || '+91 9876543210',
+    houseNumber: addr.houseNumber || '',
+    building: addr.building || '',
+    street: addr.street || '',
+    landmark: addr.landmark || '',
+    locality: addr.locality || '',
+    city: addr.city || 'Patna',
+    state: addr.state || 'Bihar',
     pincode: addr.pincode || '800001',
-    country: 'India',
+    country: addr.country || 'India',
     type: addr.type || 'Home',
     isDefault: addr.isDefault ?? true,
     latitude: addr.latitude,
