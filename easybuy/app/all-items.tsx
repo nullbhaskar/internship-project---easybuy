@@ -93,7 +93,7 @@ export default function AllItemsScreen() {
   const router = useRouter();
   const { isDarkMode } = useEasyBuyTheme();
   const isDark = isDarkMode;
-  const { openCart, totalItems: cartCount } = useCart();
+  const { openCart, totalItems: cartCount, addToCart } = useCart();
 
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +101,69 @@ export default function AllItemsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('All');
   const [selectedQuote, setSelectedQuote] = useState('');
+
+  // Catalog-wide product search matching the search query
+  const matchedProducts = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    const catalog = generateFullIndianCatalog();
+    return catalog.filter((p) => {
+      const nameMatch = (p.name || p.title || '').toLowerCase().includes(q);
+      const brandMatch = (p.brand || '').toLowerCase().includes(q);
+      const catMatch = (p.categoryName || '').toLowerCase().includes(q);
+      const keywordMatch = (p.searchKeywords || []).some(k => k.toLowerCase().includes(q));
+      return nameMatch || brandMatch || catMatch || keywordMatch;
+    });
+  }, [searchQuery]);
+
+  const renderProductItem = (item: any) => {
+    return (
+      <TouchableOpacity
+        key={item.id}
+        style={[styles.productGridCard, isDark && styles.productGridCardDark]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          router.push({
+            pathname: '/product/[id]',
+            params: {
+              id: item.id,
+              title: item.title || item.name,
+              price: item.priceNumber || item.price,
+              image: item.thumbnail || item.image,
+            }
+          } as any);
+        }}
+        activeOpacity={0.9}
+      >
+        <Image source={{ uri: item.thumbnail || item.image }} style={styles.productCardImage} resizeMode="cover" />
+        <View style={styles.productCardInfo}>
+          <Text style={styles.productCategoryLabel}>{item.categoryName}</Text>
+          <Text style={[styles.productCardTitle, isDark && styles.textLight]} numberOfLines={2}>
+            {item.title || item.name}
+          </Text>
+          <View style={styles.productCardRow}>
+            <Text style={styles.productCardPrice}>₹{item.priceNumber || item.price}</Text>
+            <TouchableOpacity
+              style={styles.productQuickAddBtn}
+              onPress={() => {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                addToCart({
+                  id: item.id,
+                  title: item.title || item.name,
+                  price: `₹${item.priceNumber || item.price}`,
+                  image: item.thumbnail || item.image,
+                  quantity: 1,
+                });
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={16} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const dailySpotlights = useMemo(() => getDailySpotlightCategories(), []);
 
@@ -612,12 +675,46 @@ export default function AllItemsScreen() {
               </TouchableOpacity>
             </View>
 
-            {searchQuery.length > 0 && filteredCategories.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="search-outline" size={44} color="#94A3B8" />
-                <Text style={[styles.emptyTitle, isDark && styles.textLight]}>No Categories Found</Text>
-                <Text style={styles.emptySub}>We couldn&apos;t find any categories matching &quot;{searchQuery}&quot;</Text>
-              </View>
+            {searchQuery.length > 0 ? (
+              filteredCategories.length === 0 && matchedProducts.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="search-outline" size={44} color="#94A3B8" />
+                  <Text style={[styles.emptyTitle, isDark && styles.textLight]}>No Results Found</Text>
+                  <Text style={styles.emptySub}>We couldn&apos;t find any categories or products matching &quot;{searchQuery}&quot;</Text>
+                </View>
+              ) : (
+                <View style={styles.searchResultsContainer}>
+                  {/* Matching Categories section */}
+                  {filteredCategories.length > 0 && (
+                    <View style={{ marginBottom: 20 }}>
+                      <Text style={[styles.searchSectionTitle, isDark && styles.textLight]}>Matching Categories</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.searchCategoryScroll}>
+                        {filteredCategories.map((cat) => (
+                          <TouchableOpacity
+                            key={cat.id}
+                            style={[styles.searchCategoryBadge, isDark && styles.searchCategoryBadgeDark]}
+                            onPress={() => handleCategoryPress(cat.id)}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="folder-open-outline" size={14} color="#7C3AED" />
+                            <Text style={[styles.searchCategoryText, isDark && { color: '#CBD5E1' }]}>{cat.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+
+                  {/* Matching Products section */}
+                  {matchedProducts.length > 0 && (
+                    <View>
+                      <Text style={[styles.searchSectionTitle, isDark && styles.textLight]}>Products Found ({matchedProducts.length})</Text>
+                      <View style={styles.productGrid}>
+                        {matchedProducts.map(renderProductItem)}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )
             ) : (
               <View style={styles.collageGrid}>
                 {/* Collage Row 1: Electronics (Tall Left) + Study & Hostel (Stack Right) */}
@@ -660,10 +757,10 @@ export default function AllItemsScreen() {
                   ]}>
                     <View style={styles.collageLeftCol}>
                       {renderCard('men', 'wide')}
-                      {renderCard('women', 'wide')}
                     </View>
                     <View style={styles.collageRightCol}>
-                      {renderCard('ethnic_wear', 'tall')}
+                      {renderCard('women', 'wide')}
+                      {renderCard('ethnic_wear', 'wide')}
                     </View>
                   </Animated.View>
                 )}
@@ -1269,5 +1366,107 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '800',
+  },
+  searchResultsContainer: {
+    paddingHorizontal: 16,
+    marginTop: 10,
+  },
+  searchSectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 10,
+    marginTop: 5,
+  },
+  searchCategoryScroll: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  searchCategoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  searchCategoryBadgeDark: {
+    backgroundColor: '#1E1B4B',
+    borderColor: '#312E81',
+  },
+  searchCategoryText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
+  productGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingBottom: 20,
+  },
+  productGridCard: {
+    width: (width - 44) / 2,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+    marginBottom: 4,
+  },
+  productGridCardDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  productCardImage: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#F8FAFC',
+  },
+  productCardInfo: {
+    padding: 10,
+  },
+  productCategoryLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#7C3AED',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 4,
+  },
+  productCardTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#0F172A',
+    lineHeight: 16,
+    height: 32,
+    marginBottom: 6,
+  },
+  productCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  productCardPrice: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#10B981',
+  },
+  productQuickAddBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#7C3AED',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
