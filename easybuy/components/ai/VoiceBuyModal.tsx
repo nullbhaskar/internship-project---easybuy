@@ -221,7 +221,7 @@ export const VoiceBuyModal: React.FC<VoiceBuyModalProps> = ({
           <View style={styles.headerRow}>
             <View>
               <Text style={[styles.title, isDarkMode && { color: '#F8FAFC' }]}>
-                EasyBuy ChatGPT Concierge 🎙️
+                EasyBuy AI Concierge 🎙️
               </Text>
               <Text style={[styles.subtitle, isDarkMode && { color: '#94A3B8' }]}>
                 Ask for gifts, recipes, outfits, diets, or groceries in any language!
@@ -311,15 +311,15 @@ export const VoiceBuyModal: React.FC<VoiceBuyModalProps> = ({
             </View>
           )}
 
-          {/* ─── CHATGPT-STYLE AI ANSWER & BUNDLE ─── */}
+          {/* ─── AI CONCIERGE ANSWER & BUNDLE ─── */}
           {phase === 'ai_result' && aiResult && (
             <View style={styles.resultSection}>
-              {/* ChatGPT Friendly Chat Bubble */}
+              {/* AI Friendly Chat Bubble */}
               <View style={[styles.chatBubble, isDarkMode && styles.chatBubbleDark]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <Ionicons name="sparkles" size={14} color="#10B981" />
                   <Text style={{ fontSize: 11, fontWeight: '800', color: '#10B981', letterSpacing: 0.5 }}>
-                    EASYBUY AI CHATGPT CONCIERGE
+                    EASYBUY AI CONCIERGE
                   </Text>
                 </View>
                 <Text style={[styles.chatBubbleTxt, isDarkMode && { color: '#F8FAFC' }]}>

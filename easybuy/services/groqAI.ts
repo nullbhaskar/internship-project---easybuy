@@ -257,7 +257,7 @@ export async function processUniversalAIShopping(
         {
           role: 'system',
           content:
-            'You are the intelligent ChatGPT-style AI Shopping Concierge for EasyBuy (an Indian Quick Commerce & E-commerce app).\n' +
+            'You are the intelligent AI Shopping Concierge for EasyBuy (an Indian Quick Commerce & E-commerce app).\n' +
             'The user can ask ANYTHING in Hindi, English, or Hinglish (e.g. birthday gifts, recipes, gym diets, college outfits, late night cravings, skincare, groceries).\n' +
             'Always be helpful, warm, and conversational. Give a short 1-2 sentence friendly advice in Hinglish/English, and assemble 3 to 5 realistic matching products from an Indian shopping catalog.\n' +
             'Reply ONLY in valid JSON with this exact structure:\n' +
@@ -266,7 +266,7 @@ export async function processUniversalAIShopping(
             '  "type": "gift" | "recipe" | "outfit" | "fitness" | "study" | "grocery" | "beauty" | "general",\n' +
             '  "title": "Title with emoji (e.g. 🎁 Birthday Celebration Gift Kit / 🫖 Chai & Pakora Kit)",\n' +
             '  "emoji": "🎁",\n' +
-            '  "chatReply": "Warm friendly 1-2 sentence ChatGPT reply explaining the suggestion in conversational Hinglish/English.",\n' +
+            '  "chatReply": "Warm friendly 1-2 sentence advice explaining the suggestion in conversational Hinglish/English.",\n' +
             '  "tagline": "Short sub-headline for the recommendation",\n' +
             '  "metaBadge": "Quick badge like 4 Items • Ready to Order",\n' +
             '  "steps": ["Step 1", "Step 2"] (optional if recipe or styling guide),\n' +
@@ -538,7 +538,7 @@ export async function chatWithEasyBuyAI(
       'Whenever the user asks for products, gifts, recipes, outfits, groceries, or recommendations, attach 2 to 4 matching products with realistic Indian prices.\n' +
       'Reply in this valid JSON format:\n' +
       '{\n' +
-      '  "replyText": "Your direct conversational ChatGPT reply to the user (2-3 sentences max, warm & helpful).",\n' +
+      '  "replyText": "Your direct conversational reply to the user (2-3 sentences max, warm & helpful).",\n' +
       '  "hasProducts": true,\n' +
       '  "bundle": {\n' +
       '    "title": "Title with emoji (e.g. 🎁 Birthday Party Gift Kit)",\n' +
