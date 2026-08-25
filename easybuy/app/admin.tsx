@@ -196,14 +196,29 @@ export default function AdminScreen() {
     setLoadingProducts(true);
     try {
       const snap  = await getDocs(collection(db, 'products'));
-      const items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      let items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+      if (items.length === 0) {
+        items = generateFullIndianCatalog().map(p => ({
+          ...p,
+          priceNumber: typeof p.price === 'number' ? p.price : (parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || 0),
+          id: p.id,
+        }));
+      }
 
       setProducts(items);
       setIsFirebaseOk(true);
     } catch (err: any) {
       console.warn('loadProducts error:', err);
       setIsFirebaseOk(false);
-      setProducts([]);
+      
+      // Fallback if network drops completely
+      const fallbackItems = generateFullIndianCatalog().map(p => ({
+        ...p,
+        priceNumber: typeof p.price === 'number' ? p.price : (parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || 0),
+        id: p.id,
+      }));
+      setProducts(fallbackItems);
     } finally {
       setLoadingProducts(false);
     }
@@ -226,12 +241,17 @@ export default function AdminScreen() {
   const loadOrders = async () => {
     setLoadingOrders(true);
     try {
-      const q    = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-      const snap = await getDocs(q);
-      const items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      const snap = await getDocs(collection(db, 'orders'));
+      const items = snap.docs
+        .map(d => ({ id: d.id, ...(d.data() as any) }))
+        .sort((a: any, b: any) => {
+          const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const db2 = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return db2 - da;
+        });
       setOrders(items);
-    } catch {
-      console.warn('loadOrders error (no index or no data — expected on first run)');
+    } catch (err) {
+      console.warn('loadOrders error:', err);
     } finally {
       setLoadingOrders(false);
     }
@@ -462,6 +482,19 @@ export default function AdminScreen() {
   }, [orders]);
 
   // Total Registered Clients (from Firestore users collection + orders)
+  const weeklyRevenueData = useMemo(() => {
+    const data = [0, 0, 0, 0, 0, 0, 0];
+    orders.forEach(o => {
+      if (o.createdAt) {
+        const d = new Date(o.createdAt);
+        const day = d.getDay();
+        const amt = typeof o.totalAmount === 'number' ? o.totalAmount : parseFloat(String(o.totalAmount).replace(/[^0-9.]/g, '')) || 0;
+        data[day] += amt;
+      }
+    });
+    return data;
+  }, [orders]);
+
   const uniqueClients = useMemo(() => {
     const seen = new Set<string>();
     orders.forEach(o => {
@@ -561,7 +594,16 @@ export default function AdminScreen() {
     );
   }
 
-  if (!isAdmin) return null;
+  if (!isAdmin) return (
+    <View style={styles.loadScreen}>
+      <Ionicons name="lock-closed" size={48} color="#EF4444" />
+      <Text style={[styles.loadText, { color: '#EF4444', marginTop: 16 }]}>Access Denied</Text>
+      <Text style={{ color: '#64748B', marginTop: 8 }}>You do not have administrator privileges.</Text>
+      <TouchableOpacity onPress={() => router.replace('/')} style={{ marginTop: 24, backgroundColor: '#4F46E5', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 }}>
+        <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Go Home</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
@@ -617,6 +659,7 @@ export default function AdminScreen() {
               totalRevenue={totalRevenue}
               orders={orders}
               onManageProducts={() => setActiveSection('products')}
+              weeklyRevenueData={weeklyRevenueData}
             />
           )}
 
@@ -668,245 +711,49 @@ export default function AdminScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* Search Bar */}
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={16} color={C.textMuted} />
-                <TextInput
-                  style={styles.searchInput}
-                  value={productSearch}
-                  onChangeText={setProductSearch}
-                  placeholder="Search products, brands, categories..."
-                  placeholderTextColor={C.textMuted}
-                />
-                {productSearch.length > 0 && (
-                  <TouchableOpacity onPress={() => setProductSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Ionicons name="close-circle" size={16} color={C.textMuted} />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* ── Large Rectangular State & UT Selector Button ── */}
-              <TouchableOpacity
-                style={[
-                  styles.stateSelectorBtn,
-                  selectedAdminState && styles.stateSelectorBtnActive,
-                ]}
-                onPress={() => setShowStateModal(true)}
-                activeOpacity={0.85}
-              >
-                <View style={styles.stateBtnLeft}>
-                  <View
-                    style={[
-                      styles.statePinBadge,
-                      selectedAdminState && styles.statePinBadgeActive,
-                    ]}
-                  >
-                    <Text style={{ fontSize: 18 }}>
-                      {selectedAdminState ? '📍' : '🇮🇳'}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.stateBtnLabel}>
-                      {selectedAdminState ? 'FILTERED BY STATE / UT' : 'STATE / REGIONAL CATALOG'}
-                    </Text>
-                    <Text style={styles.stateBtnTitle} numberOfLines={1}>
-                      {selectedAdminState
-                        ? `${selectedAdminState.name} (${selectedAdminState.popularCities[0]})`
-                        : 'All Products (All India & Firebase)'}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.stateBtnRight}>
-                  <View
-                    style={[
-                      styles.stateCountChip,
-                      selectedAdminState && styles.stateCountChipActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.stateCountText,
-                        selectedAdminState && styles.stateCountTextActive,
-                      ]}
-                    >
-                      {stateProducts.length} Items
-                    </Text>
-                  </View>
-                  {selectedAdminState ? (
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        setSelectedAdminState(null);
-                      }}
-                      style={styles.clearStateBtn}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="close-circle" size={18} color="#EF4444" />
+              {/* Search Bar and Filter */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <View style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}>
+                  <Ionicons name="search" size={18} color="#94A3B8" />
+                  <TextInput
+                    style={styles.searchInput}
+                    value={productSearch}
+                    onChangeText={setProductSearch}
+                    placeholder="Search products..."
+                    placeholderTextColor="#94A3B8"
+                  />
+                  {productSearch.length > 0 && (
+                    <TouchableOpacity onPress={() => setProductSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="close-circle" size={16} color="#94A3B8" />
                     </TouchableOpacity>
-                  ) : (
-                    <Ionicons name="chevron-down" size={18} color="#64748B" />
                   )}
                 </View>
-              </TouchableOpacity>
+                <TouchableOpacity style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="options" size={20} color="#475569" />
+                </TouchableOpacity>
+              </View>
 
-              {/* ── Clean Compact Quick Filters Bar ── */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.compactFilterScroll}
-                contentContainerStyle={styles.compactFilterContent}
+            {/* Segmented Control Filters */}
+            <View style={{ flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 12, padding: 4, marginBottom: 16 }}>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: quickBuyTab === 'all' && !productSearch ? '#FFFFFF' : 'transparent', shadowColor: quickBuyTab === 'all' && !productSearch ? '#000' : 'transparent', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: quickBuyTab === 'all' && !productSearch ? 2 : 0 }}
+                onPress={() => { setQuickBuyTab('all'); setProductSearch(''); }}
               >
-                {/* All Items */}
-                <TouchableOpacity
-                  style={[
-                    styles.quickPill,
-                    quickBuyTab === 'all' && !productSearch && styles.quickPillActive,
-                  ]}
-                  onPress={() => {
-                    setQuickBuyTab('all');
-                    setProductSearch('');
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      quickBuyTab === 'all' && !productSearch && styles.quickPillTextActive,
-                    ]}
-                  >
-                    🏷️ All ({stateProducts.length})
-                  </Text>
-                </TouchableOpacity>
-
-                {/* QuickBuy Only */}
-                <TouchableOpacity
-                  style={[
-                    styles.quickPill,
-                    quickBuyTab === 'quick' && styles.quickPillActiveGreen,
-                  ]}
-                  onPress={() => setQuickBuyTab(quickBuyTab === 'quick' ? 'all' : 'quick')}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      quickBuyTab === 'quick' && styles.quickPillTextActiveGreen,
-                    ]}
-                  >
-                    ⚡ QuickBuy ({stateQuickBuyCount})
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Regular Items */}
-                <TouchableOpacity
-                  style={[
-                    styles.quickPill,
-                    quickBuyTab === 'regular' && styles.quickPillActive,
-                  ]}
-                  onPress={() => setQuickBuyTab(quickBuyTab === 'regular' ? 'all' : 'regular')}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      quickBuyTab === 'regular' && styles.quickPillTextActive,
-                    ]}
-                  >
-                    📦 Regular ({stateRegularCount})
-                  </Text>
-                </TouchableOpacity>
-
-                {/* In Stock */}
-                <TouchableOpacity
-                  style={[
-                    styles.quickPill,
-                    productStockFilter === 'inStock' && styles.quickPillActiveGreen,
-                  ]}
-                  onPress={() =>
-                    setProductStockFilter(productStockFilter === 'inStock' ? 'all' : 'inStock')
-                  }
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      productStockFilter === 'inStock' && styles.quickPillTextActiveGreen,
-                    ]}
-                  >
-                    ✅ In Stock
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Low Stock */}
-                <TouchableOpacity
-                  style={[
-                    styles.quickPill,
-                    productStockFilter === 'lowStock' && styles.quickPillActiveYellow,
-                  ]}
-                  onPress={() =>
-                    setProductStockFilter(productStockFilter === 'lowStock' ? 'all' : 'lowStock')
-                  }
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      productStockFilter === 'lowStock' && styles.quickPillTextActiveYellow,
-                    ]}
-                  >
-                    ⚠️ Low Stock
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Out of Stock */}
-                <TouchableOpacity
-                  style={[
-                    styles.quickPill,
-                    productStockFilter === 'outOfStock' && styles.quickPillActiveRed,
-                  ]}
-                  onPress={() =>
-                    setProductStockFilter(productStockFilter === 'outOfStock' ? 'all' : 'outOfStock')
-                  }
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      productStockFilter === 'outOfStock' && styles.quickPillTextActiveRed,
-                    ]}
-                  >
-                    ❌ Out of Stock
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Sort Toggle */}
-                <TouchableOpacity
-                  style={[
-                    styles.quickPill,
-                    productSort !== 'newest' && styles.quickPillActiveBlue,
-                  ]}
-                  onPress={() => {
-                    if (productSort === 'newest') setProductSort('priceLow');
-                    else if (productSort === 'priceLow') setProductSort('priceHigh');
-                    else setProductSort('newest');
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.quickPillText,
-                      productSort !== 'newest' && styles.quickPillTextActiveBlue,
-                    ]}
-                  >
-                    {productSort === 'priceLow'
-                      ? '₹ Price (Low to High)'
-                      : productSort === 'priceHigh'
-                      ? '₹ Price (High to Low)'
-                      : '🕐 Newest'}
-                  </Text>
-                </TouchableOpacity>
-              </ScrollView>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: quickBuyTab === 'all' && !productSearch ? '#0F172A' : '#64748B' }}>All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: quickBuyTab === 'quick' ? '#FFFFFF' : 'transparent', shadowColor: quickBuyTab === 'quick' ? '#000' : 'transparent', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: quickBuyTab === 'quick' ? 2 : 0 }}
+                onPress={() => setQuickBuyTab(quickBuyTab === 'quick' ? 'all' : 'quick')}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '600', color: quickBuyTab === 'quick' ? '#0F172A' : '#64748B' }}>QuickBuy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: quickBuyTab === 'regular' ? '#FFFFFF' : 'transparent', shadowColor: quickBuyTab === 'regular' ? '#000' : 'transparent', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: quickBuyTab === 'regular' ? 2 : 0 }}
+                onPress={() => setQuickBuyTab(quickBuyTab === 'regular' ? 'all' : 'regular')}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '600', color: quickBuyTab === 'regular' ? '#0F172A' : '#64748B' }}>Regular</Text>
+              </TouchableOpacity>
+            </View>
 
               {/* Product Form */}
               {showProductForm && (
@@ -929,8 +776,11 @@ export default function AdminScreen() {
             </View>
           )}
 
-          <View style={{ height: 32 }} />
-        </ScrollView>
+                    <View style={{ alignItems: 'center', paddingVertical: 32, opacity: 0.5 }}>
+              <Ionicons name="archive-outline" size={24} color="#64748B" style={{ marginBottom: 8 }} />
+              <Text style={{ fontSize: 12, color: '#64748B' }}>End of results</Text>
+            </View>
+          </ScrollView>
       </KeyboardAvoidingView>
 
       {/* ── Bottom Nav ── */}
@@ -965,7 +815,7 @@ export default function AdminScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F4F5F9',
+    backgroundColor: '#FFFFFF',
   },
 
   // Loading Screen
@@ -1027,30 +877,11 @@ const styles = StyleSheet.create({
   pageSub:   { color: '#64748B', fontSize: 12, marginTop: 2 },
 
   // Add Button
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#1E293B',
-    paddingHorizontal: S.lg,
-    paddingVertical: S.sm + 2,
-    borderRadius: R.btn,
-  },
+  addBtn: { backgroundColor: '#4F46E5', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center' },
   addBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
 
   // Search
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: S.sm,
-    backgroundColor: '#FFFFFF',
-    borderRadius: R.card2,
-    paddingHorizontal: S.md,
-    paddingVertical: S.sm + 2,
-    marginBottom: S.sm,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 24, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 16 },
   searchInput: {
     flex: 1,
     color: '#0F172A',
@@ -1059,23 +890,7 @@ const styles = StyleSheet.create({
   },
 
   // Large Rectangular State & UT Selector Button
-  stateSelectorBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 10,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
+  stateSelectorBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFFFFF', borderRadius: 16, padding: 12, marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.02, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
   stateSelectorBtnActive: {
     backgroundColor: '#F0FDF4',
     borderColor: '#2F6E49',
@@ -1086,24 +901,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 10,
   },
-  statePinBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#F1F5F9',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  statePinBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
   statePinBadgeActive: {
     backgroundColor: '#DCFCE7',
   },
-  stateBtnLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 0.4,
-    marginBottom: 2,
-  },
+  stateBtnLabel: { fontSize: 9, fontWeight: '800', color: '#94A3B8', letterSpacing: 0.5, textTransform: 'uppercase' },
   stateBtnTitle: {
     fontSize: 14,
     fontWeight: '800',
@@ -1144,18 +946,8 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 4,
   },
-  quickPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  quickPillActive: {
-    backgroundColor: '#1E293B',
-    borderColor: '#1E293B',
-  },
+  quickPill: { flexDirection: 'row', alignItems: 'center', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginRight: 10, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#F1F5F9' },
+  quickPillActive: { backgroundColor: '#334155', borderColor: '#334155' },
   quickPillActiveGreen: {
     backgroundColor: '#DCFCE7',
     borderColor: '#16A34A',
@@ -1172,15 +964,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#E0F2FE',
     borderColor: '#0284C7',
   },
-  quickPillText: {
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  quickPillTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
+  quickPillText: { fontSize: 12, fontWeight: '700', color: '#64748B' },
+  quickPillTextActive: { color: '#FFFFFF' },
   quickPillTextActiveGreen: {
     color: '#166534',
     fontWeight: '800',

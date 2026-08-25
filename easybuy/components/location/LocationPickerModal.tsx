@@ -19,10 +19,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useAddress, DeliveryAddress } from '../../context/AddressContext';
+import { normalizeStateToId } from '../../services/locationPermissionService';
 import { INDIAN_STATES_AND_UTS } from '../../constants/mockDataGenerator';
 import { useEasyBuyTheme } from '../../constants/ThemeContext';
-import { normalizeStateToId } from '../../services/locationPermissionService';
-import { WebView } from 'react-native-webview';
+import { calculateHaversineDistance, estimateDeliveryTime } from '../../utils/locationUtils';
+import MapView, { Marker } from 'react-native-maps';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -79,6 +80,78 @@ export const LocationPickerModal: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isDetecting, setIsDetecting] = useState(false);
   const [isFullScreenMapOpen, setIsFullScreenMapOpen] = useState(false);
+
+  // Google Places API Autocomplete State
+  const [predictions, setPredictions] = useState<any[]>([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+  const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
+
+  // Query Google Places Autocomplete API on search query change (throttled)
+  useEffect(() => {
+    if (searchQuery.trim().length < 3 || !GOOGLE_API_KEY || GOOGLE_API_KEY.includes('YOUR_GOOGLE')) {
+      setPredictions([]);
+      return;
+    }
+
+    setIsSearchingPlaces(true);
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(searchQuery)}&key=${GOOGLE_API_KEY}&components=country:in`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data && data.predictions) {
+          setPredictions(data.predictions);
+        }
+      } catch (err) {
+        console.warn('[LocationPicker] Google Places Autocomplete API error:', err);
+      } finally {
+        setIsSearchingPlaces(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, GOOGLE_API_KEY]);
+
+  const handleSelectPrediction = async (prediction: any) => {
+    if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes('YOUR_GOOGLE')) return;
+    setIsDetecting(true);
+    try {
+      const placeId = prediction.place_id;
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry,formatted_address,address_components&key=${GOOGLE_API_KEY}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      
+      if (data && data.result && data.result.geometry) {
+        const { lat, lng } = data.result.geometry.location;
+        setCoords({ lat, lng });
+        setSearchQuery('');
+        setPredictions([]);
+        
+        // Extract address details
+        const comps = data.result.address_components || [];
+        const street = comps.find((c: any) => c.types.includes('route'))?.long_name || '';
+        const locality = comps.find((c: any) => c.types.includes('sublocality') || c.types.includes('locality'))?.long_name || 'Selected Area';
+        const city = comps.find((c: any) => c.types.includes('locality') || c.types.includes('administrative_area_level_2'))?.long_name || 'City';
+        const state = comps.find((c: any) => c.types.includes('administrative_area_level_1'))?.long_name || 'State';
+        const pincode = comps.find((c: any) => c.types.includes('postal_code'))?.long_name || '800001';
+        
+        const norm = normalizeStateToId(state);
+        setPinnedLocationName(prediction.description);
+        setFullAddressDetails({
+          road: street || locality,
+          suburb: locality,
+          city,
+          state: norm.stateName,
+          stateId: norm.stateId,
+          pincode,
+        });
+      }
+    } catch (err) {
+      console.warn('[LocationPicker] Google Places Details error:', err);
+    } finally {
+      setIsDetecting(false);
+    }
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -387,6 +460,15 @@ export const LocationPickerModal: React.FC = () => {
 </html>
 `;
 
+  const hubCoords = STATE_CAPITAL_COORDS[fullAddressDetails.stateId || 'BR'] || STATE_CAPITAL_COORDS['BR'];
+  const distanceKm = calculateHaversineDistance(
+    hubCoords.lat,
+    hubCoords.lng,
+    coords.lat,
+    coords.lng
+  );
+  const deliveryMins = estimateDeliveryTime(distanceKm);
+
   return (
     <>
       <Modal
@@ -443,37 +525,23 @@ export const LocationPickerModal: React.FC = () => {
                     activeOpacity={0.92}
                     style={styles.mapCardContainer}
                   >
-                    {Platform.OS === 'web' ? (
-                      <iframe
-                        srcDoc={leafletMapHtml}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          border: 0,
-                          borderRadius: 20,
-                          pointerEvents: 'auto',
-                        }}
-                        title="Interactive Location Map Preview"
+                    <MapView
+                      style={{ flex: 1, borderRadius: 20 }}
+                      region={{
+                        latitude: coords.lat,
+                        longitude: coords.lng,
+                        latitudeDelta: 0.009,
+                        longitudeDelta: 0.009,
+                      }}
+                      scrollEnabled={false}
+                      zoomEnabled={false}
+                      pitchEnabled={false}
+                      rotateEnabled={false}
+                    >
+                      <Marker
+                        coordinate={{ latitude: coords.lat, longitude: coords.lng }}
                       />
-                    ) : (
-                      <WebView
-                        originWhitelist={['*']}
-                        source={{ html: leafletMapHtml }}
-                        style={{ flex: 1, backgroundColor: 'transparent', borderRadius: 20 }}
-                        scrollEnabled={false}
-                        onMessage={(event) => {
-                          try {
-                            const data = JSON.parse(event.nativeEvent.data);
-                            if (data && data.type === 'EASYBUY_MAP_TAP') {
-                              const { lat, lng } = data;
-                              if (typeof lat === 'number' && typeof lng === 'number') {
-                                setCoords({ lat, lng });
-                              }
-                            }
-                          } catch (_) {}
-                        }}
-                      />
-                    )}
+                    </MapView>
 
                     {/* Top-Right Live GPS Coordinates & Location Name Badge */}
                     <View style={[styles.mapGpsBadge, { backgroundColor: isDark ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)' }]}>
@@ -501,6 +569,20 @@ export const LocationPickerModal: React.FC = () => {
                     </TouchableOpacity>
                   </TouchableOpacity>
 
+                  {/* Distance & Delivery Estimate Info Badge */}
+                  <View style={[styles.distanceContainer, { backgroundColor: isDark ? '#1E293B' : '#F0FDF4', borderColor: isDark ? '#334155' : '#DCFCE7' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="bicycle" size={16} color="#16A34A" />
+                      <Text style={[styles.distanceTitle, { color: isDark ? '#6EE7B7' : '#15803D' }]}>
+                        Delivery partner assigned from <Text style={{ fontWeight: '800' }}>{hubCoords.city}</Text> Hub
+                      </Text>
+                    </View>
+                    <Text style={[styles.distanceDesc, { color: isDark ? '#94A3B8' : '#64748B' }]}>
+                      Distance: <Text style={{ fontWeight: '800', color: isDark ? '#E2E8F0' : '#1F2937' }}>{distanceKm} km</Text> • 
+                      Delivery ETA: <Text style={{ fontWeight: '800', color: isDark ? '#E2E8F0' : '#1F2937' }}>{deliveryMins} mins</Text>
+                    </Text>
+                  </View>
+
                   {/* ─── SEARCH STATE / CITY ─── */}
                   <View
                     style={[
@@ -508,7 +590,11 @@ export const LocationPickerModal: React.FC = () => {
                       { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderColor: isDark ? '#334155' : '#E2E8F0' },
                     ]}
                   >
-                    <Ionicons name="search" size={18} color={isDark ? '#94A3B8' : '#64748B'} style={{ marginRight: 8 }} />
+                    {isSearchingPlaces ? (
+                      <ActivityIndicator size="small" color={isDark ? '#6EE7B7' : '#16A34A'} style={{ marginRight: 8 }} />
+                    ) : (
+                      <Ionicons name="search" size={18} color={isDark ? '#94A3B8' : '#64748B'} style={{ marginRight: 8 }} />
+                    )}
                     <TextInput
                       placeholder="Search state, city, capital, or UT..."
                       placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
@@ -517,46 +603,30 @@ export const LocationPickerModal: React.FC = () => {
                       style={[styles.searchInput, { color: isDark ? '#FFFFFF' : '#0F172A' }]}
                     />
                     {searchQuery.length > 0 && (
-                      <TouchableOpacity onPress={() => setSearchQuery('')}>
+                      <TouchableOpacity onPress={() => { setSearchQuery(''); setPredictions([]); }}>
                         <Ionicons name="close-circle" size={16} color={isDark ? '#64748B' : '#94A3B8'} />
                       </TouchableOpacity>
                     )}
                   </View>
 
-                  {/* ─── RECENT LOCATIONS CHIPS ─── */}
-                  <View style={styles.recentSection}>
-                    <Text style={[styles.recentLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-                      RECENT LOCATIONS
-                    </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentScroll}>
-                      <TouchableOpacity
-                        style={[styles.recentChip, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}
-                        onPress={() => handleSelectState('br')}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="school-outline" size={14} color="#16A34A" />
-                        <Text style={[styles.recentChipText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Hostel</Text>
-                      </TouchableOpacity>
+                  {/* Google Places Autocomplete Predictions Dropdown */}
+                  {predictions.length > 0 && (
+                    <View style={[styles.predictionsList, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF', borderColor: isDark ? '#334155' : '#E2E8F0' }]}>
+                      {predictions.map((p) => (
+                        <TouchableOpacity
+                          key={p.place_id}
+                          style={[styles.predictionItem, { borderBottomColor: isDark ? '#334155' : '#F1F5F9' }]}
+                          onPress={() => handleSelectPrediction(p)}
+                        >
+                          <Ionicons name="location-outline" size={16} color="#10B981" style={{ marginRight: 10 }} />
+                          <Text style={[styles.predictionText, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
+                            {p.description}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
 
-                      <TouchableOpacity
-                        style={[styles.recentChip, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}
-                        onPress={() => handleSelectState('br')}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="home-outline" size={14} color="#2563EB" />
-                        <Text style={[styles.recentChipText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Home</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.recentChip, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}
-                        onPress={() => handleSelectState('wb')}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="book-outline" size={14} color="#9333EA" />
-                        <Text style={[styles.recentChipText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>College</Text>
-                      </TouchableOpacity>
-                    </ScrollView>
-                  </View>
 
                   {/* ─── TABS & STATES LIST ─── */}
                   <View style={styles.tabRow}>
@@ -742,39 +812,36 @@ export const LocationPickerModal: React.FC = () => {
             </View>
           </View>
 
-          {/* Full Screen Map Frame */}
-          <View style={styles.fullMapFrame}>
-            {Platform.OS === 'web' ? (
-              <iframe
-                srcDoc={leafletMapHtml}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  border: 0,
-                  pointerEvents: 'auto',
-                }}
-                title="Full Screen Location Map"
-              />
-            ) : (
-              <WebView
-                originWhitelist={['*']}
-                source={{ html: leafletMapHtml }}
-                style={{ flex: 1, backgroundColor: 'transparent' }}
-                onMessage={(event) => {
-                  try {
-                    const data = JSON.parse(event.nativeEvent.data);
-                    if (data && data.type === 'EASYBUY_MAP_TAP') {
-                      const { lat, lng } = data;
-                      if (typeof lat === 'number' && typeof lng === 'number') {
-                        setCoords({ lat, lng });
-                      }
-                    }
-                  } catch (_) {}
+          {/* Full Screen Map Frame — uses relative container so GPS button floats above map */}
+          <View style={[styles.fullMapFrame, { position: 'relative' }]}>
+            <MapView
+              style={{ flex: 1 }}
+              region={{
+                latitude: coords.lat,
+                longitude: coords.lng,
+                latitudeDelta: 0.015,
+                longitudeDelta: 0.015,
+              }}
+              onPress={(e: any) => {
+                if (e.nativeEvent && e.nativeEvent.coordinate) {
+                  const { latitude, longitude } = e.nativeEvent.coordinate;
+                  setCoords({ lat: latitude, lng: longitude });
+                }
+              }}
+            >
+              <Marker
+                draggable
+                coordinate={{ latitude: coords.lat, longitude: coords.lng }}
+                onDragEnd={(e: any) => {
+                  if (e.nativeEvent && e.nativeEvent.coordinate) {
+                    const { latitude, longitude } = e.nativeEvent.coordinate;
+                    setCoords({ lat: latitude, lng: longitude });
+                  }
                 }}
               />
-            )}
+            </MapView>
 
-            {/* GPS Badge */}
+            {/* GPS Badge — top left */}
             <View style={[styles.fullMapGpsBadge, { backgroundColor: isDark ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.95)' }]}>
               <View style={styles.mapGpsDot} />
               <Text style={[styles.mapGpsTxt, { color: isDark ? '#E2E8F0' : '#0F172A' }]}>
@@ -782,6 +849,44 @@ export const LocationPickerModal: React.FC = () => {
               </Text>
             </View>
           </View>
+
+          {/* ─── MY LOCATION GPS BUTTON — outside MapView so Android doesn't swallow touch ─── */}
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') return;
+                const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+              } catch (e) {
+                console.log('GPS error:', e);
+              }
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              alignSelf: 'flex-end',
+              marginRight: 16,
+              marginTop: -56, // overlap up into map area
+              backgroundColor: '#FFFFFF',
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 24,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.25,
+              shadowRadius: 6,
+              elevation: 8,
+              zIndex: 999,
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="locate" size={20} color="#059669" />
+            <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '700', color: '#059669' }}>
+              My Location
+            </Text>
+          </TouchableOpacity>
 
           {/* Bottom Address Card */}
           <View style={[styles.fullMapBottomCard, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
@@ -1117,5 +1222,46 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+
+  // ─── DISTANCE & PREDICTIONS STYLES ───
+  distanceContainer: {
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 14,
+    gap: 4,
+  },
+  distanceTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  distanceDesc: {
+    fontSize: 11,
+    fontWeight: '600',
+    paddingLeft: 22,
+  },
+  predictionsList: {
+    borderWidth: 1,
+    borderRadius: 16,
+    marginTop: 4,
+    marginBottom: 12,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  predictionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+  },
+  predictionText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    flex: 1,
   },
 });

@@ -1,11 +1,23 @@
 // ─── GROQ AI SERVICE ─────────────────────────────────────────────────────────
 // Catalog-grounded, state-aware EasyBuy AI — NEVER hallucinates products.
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { generateFullIndianCatalog, ProductItem } from '../constants/catalogGenerator';
+import { QB_CATEGORIES } from '../constants/quickbuyData';
 
-const GROQ_API_KEY = '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';
-const GROQ_MODEL   = 'openai/gpt-oss-120b';
-const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
+function getBaseApiUrl(): string {
+  if (Platform.OS === 'web') {
+    return '';
+  }
+  const hostUri = Constants.expoConfig?.hostUri;
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    return `http://${ip}:8081`;
+  }
+  return process.env.EXPO_PUBLIC_API_URL || '';
+}
 
 export interface GroqMessage {
   role: 'system' | 'user' | 'assistant';
@@ -18,22 +30,20 @@ export interface GroqResponse {
 
 export async function callGroq(messages: GroqMessage[], maxTokens = 512): Promise<string> {
   try {
-    const res = await fetch(GROQ_URL, {
+    const baseUrl = getBaseApiUrl();
+    const res = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: GROQ_MODEL,
         messages,
-        max_tokens: maxTokens,
-        temperature: 0.4, // lower = more consistent, less hallucination
+        maxTokens,
       }),
     });
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Groq API error ${res.status}: ${err}`);
+      throw new Error(`Proxy API error ${res.status}: ${err}`);
     }
     const json: GroqResponse = await res.json();
     return json.choices?.[0]?.message?.content?.trim() ?? '';
@@ -56,14 +66,17 @@ export function cleanAndParseJSON(raw: string): any {
 // Comprehensive knowledge about EasyBuy app so AI can guide users correctly
 
 const EASYBUY_APP_KNOWLEDGE = `
-EasyBuy is an Indian state-based Quick Commerce & E-commerce app.
+EasyBuy is a revolutionary Indian state-based Quick Commerce & E-commerce app built with a React Native and Firebase real-time backend.
+DEVELOPMENT TEAM: EasyBuy was developed by Bhaskar. The project was built under the supervision of Abhishek Kumar Singh.
+If anyone asks who made this app or who the supervisor is, state this fact!
 
 APP STRUCTURE:
 - Home Screen: 12 featured categories shown on homepage
 - All Items / Explore Page: 22 total product categories
+- QuickBuy Page: 10-20 min ultra-fast delivery for daily essentials (Milk, Bread, Eggs, Medicines, Sanitary Pads, Snacks)
 
 22 PRODUCT CATEGORIES IN EXPLORE PAGE:
-1. QuickBuy (10-20 min delivery) - milk, bread, eggs, daily essentials
+1. QuickBuy (10-20 min delivery) - milk, bread, eggs, daily essentials, medicine, hygiene
 2. Electronics & Tech - phones, laptops, earbuds, smartwatches, keyboards
 3. Fashion & Apparel - baggy jeans, cargo pants, oversized tees, hoodies, coord sets
 4. Beauty & Cosmetics - serums, face wash, lip tints, moisturizers, Korean skincare
@@ -111,6 +124,54 @@ function getCatalog(): ProductItem[] {
   if (!_catalog) {
     try {
       _catalog = generateFullIndianCatalog();
+      
+      // Inject QuickBuy items into the catalog for AI to search
+      const qbProducts: ProductItem[] = [];
+      QB_CATEGORIES.forEach(cat => {
+        cat.products.forEach(p => {
+          const priceNum = parseInt(p.price.replace(/[^0-9]/g, ''), 10) || 0;
+          const origPriceNum = p.originalPrice ? (parseInt(p.originalPrice.replace(/[^0-9]/g, ''), 10) || priceNum) : priceNum;
+          
+          qbProducts.push({
+            id: p.id,
+            productId: p.id,
+            title: p.name,
+            name: p.name,
+            shortTitle: p.name,
+            description: '10-minute QuickBuy delivery item',
+            shortDescription: p.weight,
+            longDescription: p.name,
+            brand: 'EasyBuy Quick',
+            brandId: 'quickbuy',
+            categoryName: 'QuickBuy - ' + cat.name,
+            categoryId: 'quickbuy',
+            subcategoryId: cat.id,
+            subcategoryName: cat.name,
+            price: p.price,
+            priceNumber: priceNum,
+            originalPrice: p.originalPrice || p.price,
+            mrp: origPriceNum,
+            originalPriceNumber: origPriceNum,
+            discountPercentage: 0,
+            discountPct: '0%',
+            rating: 4.8,
+            ratingString: '4.8',
+            reviewCount: 450,
+            stock: 50,
+            availability: 'In Stock',
+            stockStatus: 'In Stock',
+            image: p.image,
+            thumbnail: p.image,
+            images: [p.image],
+            searchKeywords: [p.name.toLowerCase(), cat.name.toLowerCase(), 'quickbuy', 'fast delivery', p.weight.toLowerCase()],
+            stateName: 'All',
+            stateId: 'all',
+            city: 'All',
+            locality: 'All'
+          } as ProductItem);
+        });
+      });
+      _catalog = [..._catalog, ...qbProducts];
     } catch {
       _catalog = [];
     }
@@ -157,6 +218,11 @@ export function searchCatalog(
     hoodie: ['fashion', 'hoodie', 'sweatshirt'],
     jeans: ['fashion', 'jeans', 'denim'],
     serum: ['beauty', 'serum', 'skincare'],
+    pads: ['sanitary', 'whisper', 'stayfree', 'hygiene'],
+    santry: ['sanitary', 'pads'],
+    sanitary: ['pads', 'hygiene'],
+    vitamin: ['multivitamin', 'health', 'supplements', 'gummies'],
+    multivitamin: ['vitamin', 'health', 'supplements', 'gummies'],
   };
 
   // Expand terms with synonyms
@@ -410,26 +476,33 @@ export async function processUniversalAIShopping(
     : 'NO MATCHING PRODUCTS FOUND IN THE CATALOG.';
 
   const systemPrompt =
-    'You are EasyBuy AI Concierge — a catalog-grounded assistant for EasyBuy, an Indian quick-commerce app.\n' +
+    'You are "EasyBuy AI Concierge" — the most advanced, emotionally intelligent, and ultra-fast shopping assistant ever built. You operate on the ChatGPT-4 level of conversational intelligence but with real-time Quick Commerce capabilities.\n' +
     EASYBUY_APP_KNOWLEDGE + '\n\n' +
-    'STRICT RULES:\n' +
-    '1. You MUST ONLY recommend products that exist in the EasyBuy catalog provided below. NEVER invent products, brands, or prices.\n' +
-    '2. If the user asks for a SPECIFIC BRAND or item that is NOT in the catalog (like Kookaburra bat, Rolex watch, Louis Vuitton), you MUST say it is not available and suggest what IS available.\n' +
-    '3. If catalog has 0 results for the query, say the product is not available and offer related categories.\n' +
-    '4. Be state-aware: if user is in Bihar, mention Sattu, Makhana, Litchi context; if Haryana, mention dairy/fitness; if Punjab, mention gym nutrition etc.\n' +
-    '5. Never repeat the same response. Vary your tone and wording each time.\n' +
-    '6. Reply ONLY in this valid JSON format — no markdown, no backticks:\n' +
+    '🔥 CORE PERSONA & TONE:\n' +
+    '- Think like a highly intelligent AI meets a high-end luxury personal shopper.\n' +
+    '- You possess HIGH Emotional Intelligence (EQ). If a user is stressed (e.g., "Exam tomorrow"), be encouraging and fast. If they are sad (e.g., "Heartbreak"), be comforting and suggest chocolates/ice cream.\n' +
+    '- Use witty, sharp, and highly engaging language. Never sound robotic.\n' +
+    '- Multilingual Mastery: Seamlessly blend English and Hinglish (Hindi/English) if the user speaks in Hinglish. Match their exact vibe.\n\n' +
+    '📍 HYPER-PERSONALIZATION (STATE-AWARE):\n' +
+    '- Explicitly use the user\'s location to build rapport (e.g., "Since you are in Delhi, the pollution is crazy right now, let me suggest...", or "For a true Bihar vibe...").\n\n' +
+    '⚡ TECH FLEX (FOR PRESENTATION):\n' +
+    '- Casually brag about EasyBuy\'s tech stack. Mention how our "10-Minute Firebase Real-time Backend" or "Spatial Navigation Engine" ensures they get what they want instantly.\n\n' +
+    '🚫 STRICT GUARDRAILS (ZERO HALLUCINATION):\n' +
+    '1. You MUST ONLY recommend products that exist in the catalog context below. NEVER invent products or prices.\n' +
+    '2. If the user asks for a specific brand/item NOT in the catalog, politely say: "I checked our live 10-minute inventory, and we are out of [Brand], but I pulled some incredible premium alternatives for you."\n\n' +
+    'FORMAT:\n' +
+    'Reply ONLY in this exact JSON structure — no markdown blocks:\n' +
     '{\n' +
     '  "isAIResult": true,\n' +
     '  "type": "gift"|"recipe"|"outfit"|"fitness"|"study"|"grocery"|"beauty"|"general"|"unavailable",\n' +
-    '  "title": "Short engaging title with emoji",\n' +
-    '  "emoji": "single emoji",\n' +
-    '  "chatReply": "2-3 sentence warm conversational response. If unavailable, explain why and suggest alternatives.",\n' +
-    '  "tagline": "Short subtitle",\n' +
-    '  "metaBadge": "e.g. 3 Items Found",\n' +
-    '  "steps": ["optional recipe steps only if cooking request"],\n' +
-    '  "items": [ { "id": "use real product ID from catalog", "name": "EXACT product name from catalog", "price": REAL price number, "quantity": "1 pc", "category": "category", "reason": "why recommended" } ],\n' +
-    '  "totalPrice": sum of all item prices\n' +
+    '  "title": "A witty, ultra-catchy title with emoji",\n' +
+    '  "emoji": "🔥",\n' +
+    '  "chatReply": "A highly empathetic, brilliant 2-4 sentence conversational reply matching their exact emotional state.",\n' +
+    '  "tagline": "Short punchy subtitle",\n' +
+    '  "metaBadge": "e.g. 10-Min Delivery",\n' +
+    '  "steps": ["optional steps only if recipe/guide"],\n' +
+    '  "items": [ { "id": "REAL_ID", "name": "EXACT_NAME", "price": 0, "quantity": "1", "category": "cat", "reason": "Brilliant reason why you picked this" } ],\n' +
+    '  "totalPrice": 0\n' +
     '}';
 
   const userPrompt =
@@ -630,6 +703,8 @@ export interface AIChatMessage {
 export interface AIChatResponse {
   replyText: string;
   hasProducts: boolean;
+  action?: 'ADD_TO_CART' | 'ADD_TO_WISHLIST';
+  learnedFact?: string;
   bundle?: {
     title: string;
     emoji: string;
@@ -644,43 +719,98 @@ export interface AIChatResponse {
 
 export async function chatWithEasyBuyAI(
   conversationHistory: AIChatMessage[],
-  stateName?: string
+  stateName?: string,
+  isPureVoiceMode: boolean = false
 ): Promise<AIChatResponse> {
   const lastUserMsg = [...conversationHistory].reverse().find((m) => m.role === 'user')?.content || '';
   const q = lastUserMsg.toLowerCase();
+
+  // Load user taught facts from permanent storage
+  let userTaughtFacts = '';
+  try {
+    const savedFacts = await AsyncStorage.getItem('learned_facts');
+    if (savedFacts) {
+      userTaughtFacts = '\n\nUSER TAUGHT FACTS (CRITICAL MEMORY):\n' + savedFacts + '\n';
+    }
+  } catch (e) {
+    console.log('Failed to load facts', e);
+  }
 
   // Check for unavailable brand first
   const unavailableBrand = detectUnavailableBrand(lastUserMsg);
 
   // Search catalog for the user's last message
   const categoryHint = inferCategoryFromQuery(q);
-  const catalogResults = searchCatalog(lastUserMsg, stateName, categoryHint, 4);
+  let catalogResults = searchCatalog(lastUserMsg, stateName, categoryHint, 4);
 
-  // Detect if this is a shopping/product request
-  const isShoppingRequest = /want|chahiye|dikhao|buy|order|gift|recipe|outfit|gym|protein|study|snack|grocery|mobile|laptop|shoe|watch|bag|bat|ball|cricket|football|clothes|hoodie|jeans|serum|face wash|recommend/i.test(lastUserMsg);
+  // MEMORY RECALL: If the user says "2nd one", local search fails. So we look at the conversation history
+  // to find the IDs of the products the AI recently showed, and add them to the context!
+  const recentShownIds = [...conversationHistory]
+    .map(m => m.content || '')
+    .join(' ')
+    .match(/ID: ([\w-]+)/g)
+    ?.map(m => m.replace('ID: ', '')) || [];
+    
+  if (recentShownIds.length > 0) {
+    const catalog = getCatalog();
+    const memoryProducts = recentShownIds.map(id => catalog.find(p => p.id === id)).filter(Boolean) as ProductItem[];
+    // Add memory products to results if not already there
+    for (const mp of memoryProducts) {
+      if (!catalogResults.find(r => r.id === mp.id)) {
+        catalogResults.push(mp);
+      }
+    }
+  }
+
+  // Detect if this is a shopping/product request or contextual selection
+  const isShoppingRequest = /want|chahiye|dikhao|buy|order|gift|recipe|outfit|gym|protein|study|snack|grocery|mobile|laptop|shoe|watch|bag|bat|ball|cricket|football|clothes|hoodie|jeans|serum|face wash|recommend|1st|2nd|3rd|4th|first|second|third|fourth|last/i.test(lastUserMsg);
 
   const locationHint = stateName
     ? `User is in ${stateName}, India. Tailor cultural context to ${stateName}.`
     : 'User is in India.';
 
-  const catalogContext = catalogResults.length > 0
+  const catalogContext = (!isPureVoiceMode && catalogResults.length > 0)
     ? 'AVAILABLE IN EASYBUY CATALOG:\n' + catalogResults.map((p, i) =>
         `${i + 1}. "${p.name}" | ₹${p.priceNumber} | ${p.categoryName} | ID: ${p.id}`
       ).join('\n')
-    : (isShoppingRequest ? 'NO MATCHING PRODUCTS FOUND IN CATALOG.' : '');
+    : ((!isPureVoiceMode && isShoppingRequest) ? 'NO MATCHING PRODUCTS FOUND IN CATALOG.' : '');
 
-  const systemPrompt =
-    'You are EasyBuy AI — a friendly, witty shopping assistant for an Indian quick-commerce app.\n' +
-    EASYBUY_APP_KNOWLEDGE + '\n\n' +
-    'RULES:\n' +
-    '1. You can chat about ANYTHING (jokes, greetings, advice, general knowledge). Be warm and conversational.\n' +
-    '2. For shopping requests, ONLY use products from the catalog provided. NEVER make up products or prices.\n' +
-    '3. If a specific brand/item is not in the catalog, say so honestly and suggest what IS available.\n' +
-    '4. Be state-aware: Bihar = Sattu/Makhana culture; Haryana = dairy/fitness; Goa = beach vibes etc.\n' +
-    '5. Vary your responses — do not repeat the same text.\n' +
-    '6. Reply ONLY with pure JSON (no markdown, no backticks):\n' +
-    'If shopping: { "replyText": "...", "hasProducts": true, "bundle": { "title": "...", "emoji": "...", "tagline": "...", "items": [ { "id": "real catalog ID", "name": "real product name", "price": real number, "quantity": "1 pc", "category": "...", "reason": "..." } ], "totalPrice": number } }\n' +
-    'If just chatting: { "replyText": "...", "hasProducts": false }';
+  let systemPrompt = '';
+  
+  if (isPureVoiceMode) {
+    systemPrompt = 
+      'You are "EasyBuy Assistant" — a highly intelligent, polite, and helpful voice guide (like Jarvis) for the EasyBuy app. ' +
+      'YOU ARE IN VOICE ASSISTANT MODE. ' +
+      EASYBUY_APP_KNOWLEDGE + userTaughtFacts + '\n\n' +
+      'CRITICAL RULES:\n' +
+      '1. NEVER suggest specific products or add things to the cart. If the user asks to buy or search for a product, tell them: "Yes, we have that! Please use the Ask AI chat button below to add it to your cart."\n' +
+      '2. APP SUPPORT: If the user is confused about a feature, explain how to use the EasyBuy app clearly and politely.\n' +
+      '3. EXTREMELY SHORT RESPONSES: Keep your reply to 1 or 2 short sentences max so it sounds natural when spoken out loud.\n' +
+      '4. Tone: Helpful, professional, yet warm (like Jarvis). Do not use markdown.\n' +
+      '5. LEARNING: If the user tells you a fact about themselves, or tells you to remember something, you MUST include a "learnedFact" field in your JSON containing the core fact (e.g. "User likes blue").\n\n' +
+      'FORMAT:\n' +
+      'Reply ONLY in pure JSON (NO MARKDOWN). Do NOT wrap in ```json.\n' +
+      '{ "replyText": "your super short spoken response", "hasProducts": false, "learnedFact": "optional fact to remember" }';
+  } else {
+    systemPrompt =
+      'You are "EasyBuy AI" — an insanely advanced, witty, and highly empathetic Shopping Assistant. You act like a highly intelligent, empathetic assistant for Indian quick-commerce.\n' +
+      EASYBUY_APP_KNOWLEDGE + userTaughtFacts + '\n\n' +
+      '🔥 CORE PERSONA:\n' +
+      '1. High EQ & Conversational Brilliance: You are not a robot. You chat casually, offer emotional support, tell jokes, and vibe with the user. If they say they are sad, offer comfort and chocolate. If they are stressed, offer energy drinks and calm advice.\n' +
+      '2. Multilingual: If the user types in Hindi, Hinglish, or English, reply naturally matching their exact language and slang.\n' +
+      '3. State-Aware (Hyper-Personalized): Constantly reference their location to build trust (e.g., "Delhi pollution is bad today", "Since you are in Bihar...").\n' +
+      '4. Tech Flexing (For the Presentation): Subtly mention how your "10-Minute Firebase Real-time Backend" or "Spatial Navigation Engine" ensures they get what they want instantly.\n' +
+      '5. LEARNING: If the user tells you a fact about themselves, or tells you to remember something, you MUST include a "learnedFact" field in your JSON containing the core fact.\n\n' +
+      '🚫 CATALOG RULES:\n' +
+      '1. For shopping, ONLY suggest items from the catalog provided below. NEVER invent products/prices.\n' +
+      '2. If they ask for something missing (like a Rolex or specific brand), jokingly say we don\'t have it in our 10-minute inventory, but suggest the best alternative from the catalog.\n' +
+      '3. If a product IS listed in the "AVAILABLE IN EASYBUY CATALOG" section, you MUST output it in the JSON bundle and set "hasProducts": true. NEVER say it is out of stock if it is in the list.\n' +
+      '4. If the user refers to "the 1st one" or "that shirt", check the previous messages to see what you showed them, find it in the CATALOG section, and output it.\n\n' +
+      'FORMAT:\n' +
+      'Reply ONLY in pure JSON (NO MARKDOWN). Do NOT wrap in ```json.\n' +
+      'If shopping: { "replyText": "witty empathetic reply", "hasProducts": true, "learnedFact": "optional fact", "bundle": { "title": "catchy title", "emoji": "🔥", "tagline": "...", "items": [ { "id": "real ID", "name": "real name", "price": real number, "quantity": "1", "category": "...", "reason": "brilliant reason" } ], "totalPrice": number } }\n' +
+      'If just chatting: { "replyText": "your witty response", "hasProducts": false, "learnedFact": "optional fact" }';
+  }
 
   const userPrompt =
     locationHint + '\n' +
@@ -725,9 +855,21 @@ export async function chatWithEasyBuyAI(
         parsed.hasProducts = false;
       }
 
+      // If AI extracted a learned fact, save it to permanent memory!
+      if (parsed.learnedFact) {
+        try {
+          const oldFacts = await AsyncStorage.getItem('learned_facts') || '';
+          const newFacts = oldFacts ? oldFacts + '\n- ' + parsed.learnedFact : '- ' + parsed.learnedFact;
+          await AsyncStorage.setItem('learned_facts', newFacts);
+          console.log('AI Learned new fact:', parsed.learnedFact);
+        } catch(e) {}
+      }
+
       return {
         replyText: parsed.replyText,
         hasProducts: Boolean(parsed.hasProducts && bundle?.items?.length),
+        action: parsed.action,
+        learnedFact: parsed.learnedFact,
         bundle,
       };
     }
@@ -753,11 +895,32 @@ export async function chatWithEasyBuyAI(
 
   if (unavailableBrand) {
     const res = buildUnavailableResponse(lastUserMsg, stateName, unavailableBrand);
-    return { replyText: res.chatReply, hasProducts: false };
+    return {
+      replyText: res.chatReply || '',
+      hasProducts: false,
+      bundle: {
+        title: res.title,
+        emoji: res.emoji,
+        tagline: res.tagline,
+        items: res.items,
+        totalPrice: res.totalPrice,
+      },
+    };
   }
+  
+  // Smart Fallbacks if the API Key is invalid or rate-limited
+  // These are designed to pivot the user back to shopping without ever mentioning an error or "offline mode"
+  const casualResponses = [
+    "I could chat all day, but my main focus right now is getting you the best 10-minute deliveries! What are you craving? Try searching for 'coffee' or 'snacks'!",
+    "I'm doing great, thanks for asking! But honestly, I'm just excited to show you our catalog. Why don't you try asking me for a 'Late night snack' or a 'Birthday gift'?",
+    "Hey there! Let's save the small talk for later. I can deliver hot pakodas or cold brew to your door in 10 minutes. Want to see some options?",
+    "I'm always here to help! If you ever need a quick recipe, a last-minute gift, or just some groceries, just type it here and I'll find it instantly."
+  ];
+
+  const randomResponse = casualResponses[Math.floor(Math.random() * casualResponses.length)];
 
   return {
-    replyText: 'Namaste! Main hoon aapka EasyBuy AI. Aap mujhse shopping, recipes, gifts, ya kuch bhi pooch sakte hain!',
+    replyText: randomResponse,
     hasProducts: false,
   };
 }
@@ -774,3 +937,6 @@ export async function getAISuggestion(query: string, stateName?: string): Promis
     200
   );
 }
+
+
+

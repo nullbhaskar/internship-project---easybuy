@@ -207,8 +207,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await AsyncStorage.removeItem(USER_SESSION_KEY);
       await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
       await AsyncStorage.removeItem('isAdmin');
+      // Clear user-specific data so next login starts fresh
+      await AsyncStorage.removeItem('easybuy_cart_items');
+      await AsyncStorage.removeItem('easybuy_wishlist_items');
       try {
-        await signOut(auth);
+        signOut(auth).catch(() => {});
       } catch {}
       setUser(null);
       setAuthState('logged_out');

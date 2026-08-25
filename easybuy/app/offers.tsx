@@ -21,6 +21,7 @@ import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { generateFullIndianCatalog, ProductItem } from '../constants/catalogGenerator';
 import { SearchModal } from '../components/search/SearchModal';
 import { ProductTransitionWrapper } from '../components/transition/ProductTransitionWrapper';
+import { Marquee, StaggerIn } from '../components/ui/motion';
 
 const { width } = Dimensions.get('window');
 
@@ -185,6 +186,13 @@ export default function OffersScreen() {
         </View>
       </View>
 
+      {/* ─── LIVE DEALS INFINITE TICKER ─── */}
+      <Marquee
+        text="⚡ FLASH SALE LIVE — UP TO 60% OFF ✦ FREE EXPRESS SHIPPING OVER ₹499 ✦ NEW DROPS EVERY 12 HOURS ✦ USE CODE FLASH60 AT CHECKOUT ✦"
+        style={[styles.tickerStrip, isDarkMode && styles.tickerStripDark]}
+        textStyle={styles.tickerText}
+      />
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
         {/* ─── 12-HOUR COUNTDOWN TIMER BANNER ─── */}
@@ -209,24 +217,26 @@ export default function OffersScreen() {
           </Text>
           
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.couponsScroll}>
-            {DYNAMIC_COUPONS.map((coupon) => (
-              <View key={coupon.code} style={[styles.couponCard, { backgroundColor: coupon.bg[0] }]}>
-                <View style={styles.couponBadgePill}>
-                  <Text style={styles.couponBadgeTxt}>{coupon.badge}</Text>
+            {DYNAMIC_COUPONS.map((coupon, couponIdx) => (
+              <StaggerIn key={coupon.code} index={couponIdx} distance={32}>
+                <View style={[styles.couponCard, { backgroundColor: coupon.bg[0] }]}>
+                  <View style={styles.couponBadgePill}>
+                    <Text style={styles.couponBadgeTxt}>{coupon.badge}</Text>
+                  </View>
+
+                  <Text style={styles.couponTitle}>{coupon.title}</Text>
+                  <Text style={styles.couponSub}>{coupon.sub}</Text>
+
+                  <TouchableOpacity
+                    style={styles.copyBtn}
+                    onPress={() => handleCopyCoupon(coupon.code)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.copyBtnTxt}>{coupon.code}</Text>
+                    <Ionicons name="copy-outline" size={14} color="#0F172A" />
+                  </TouchableOpacity>
                 </View>
-                
-                <Text style={styles.couponTitle}>{coupon.title}</Text>
-                <Text style={styles.couponSub}>{coupon.sub}</Text>
-                
-                <TouchableOpacity
-                  style={styles.copyBtn}
-                  onPress={() => handleCopyCoupon(coupon.code)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.copyBtnTxt}>{coupon.code}</Text>
-                  <Ionicons name="copy-outline" size={14} color="#0F172A" />
-                </TouchableOpacity>
-              </View>
+              </StaggerIn>
             ))}
           </ScrollView>
         </View>
@@ -283,8 +293,8 @@ export default function OffersScreen() {
               const claimedPct = 65 + ((idx * 7) % 30);
               const imageUrl = item.thumbnail || item.image || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800';
               return (
+                <StaggerIn key={item.id} index={idx % 6} delayStep={70} distance={24}>
                 <ProductTransitionWrapper
-                  key={item.id}
                   productId={item.id}
                   imageUrl={imageUrl}
                   style={[styles.productCard, isDarkMode && styles.productCardDark]}
@@ -338,6 +348,7 @@ export default function OffersScreen() {
                     </View>
                   </View>
                 </ProductTransitionWrapper>
+                </StaggerIn>
               );
             })}
           </View>
@@ -362,6 +373,20 @@ const styles = StyleSheet.create({
   },
   containerDark: {
     backgroundColor: '#0F172A',
+  },
+  tickerStrip: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#7C3AED',
+  },
+  tickerStripDark: {
+    backgroundColor: '#312E81',
+  },
+  tickerText: {
+    color: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',

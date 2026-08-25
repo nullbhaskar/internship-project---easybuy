@@ -24,6 +24,7 @@ import { useCart } from '../context/CartContext';
 import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { useAddress, DeliveryAddress } from '../context/AddressContext';
 import { useAuth } from '../context/AuthContext';
+import { sendOrderConfirmationEmail } from '../services/emailService';
 
 const { width } = Dimensions.get('window');
 
@@ -227,6 +228,23 @@ export default function CheckoutScreen() {
 
       await setDoc(newOrderRef, orderData);
 
+      // Send Order Confirmation Email
+      try {
+        await sendOrderConfirmationEmail(
+          activeUser?.email || 'guest@easybuy.com',
+          activeUser?.fullName || selectedAddress.receiverName || 'Guest Customer',
+          orderId,
+          cartItems,
+          {
+            shipping: deliveryFee,
+            tax: 0,
+            total: finalPayable
+          }
+        );
+      } catch (err) {
+        console.error('Order email error:', err);
+      }
+
       setIsSubmitting(false);
       setOrderSuccessModal(true);
 
@@ -338,7 +356,7 @@ export default function CheckoutScreen() {
             <View style={S.itemDetails}>
               <View style={S.itemHeaderRow}>
                 <Text style={[S.itemTitle, isDark && S.textLight]} numberOfLines={2}>
-                  {item.title.toUpperCase()}
+                  {(item.title || item.name || "Unknown Item").toUpperCase()}
                 </Text>
                 <TouchableOpacity
                   onPress={() => {

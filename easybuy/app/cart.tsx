@@ -20,6 +20,7 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { auth, db } from '../services/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
+import { FloatLoop, StaggerIn } from '../components/ui/motion';
 
 const { width: W } = Dimensions.get('window');
 
@@ -137,7 +138,9 @@ export default function CartScreen() {
         {/* ── Cart Items List ── */}
         {cartItems.length === 0 ? (
           <View style={S.emptyBox}>
-            <Ionicons name="bag-handle-outline" size={44} color={C.muted} style={{ marginBottom: 12 }} />
+            <FloatLoop distance={9} rotate>
+              <Ionicons name="bag-handle-outline" size={44} color={C.muted} style={{ marginBottom: 12 }} />
+            </FloatLoop>
             <Text style={S.emptyTitle}>Your cart is empty</Text>
             <Text style={S.emptySub}>Discover our curated collections and fill your cart.</Text>
             <TouchableOpacity style={S.exploreBtn} onPress={() => router.back()} activeOpacity={0.85}>
@@ -146,8 +149,9 @@ export default function CartScreen() {
           </View>
         ) : (
           <View style={S.itemsList}>
-            {cartItems.map((item) => (
-              <View key={item.id} style={S.itemCard}>
+            {cartItems.map((item, itemIdx) => (
+              <StaggerIn key={item.id} index={Math.min(itemIdx, 8)} distance={22}>
+                <View style={S.itemCard}>
                 {item.image ? (
                   <Image source={{ uri: item.image }} style={S.itemImg} resizeMode="cover" />
                 ) : (
@@ -158,7 +162,7 @@ export default function CartScreen() {
 
                 <View style={S.itemDetails}>
                   <View style={S.itemHeaderRow}>
-                    <Text style={S.itemTitle} numberOfLines={2}>{item.title.toUpperCase()}</Text>
+                    <Text style={S.itemTitle} numberOfLines={2}>{(item.title || item.name || 'Unknown Item').toUpperCase()}</Text>
                     <TouchableOpacity
                       style={S.removeBtn}
                       onPress={() => { removeFromCart(item.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); }}
@@ -191,9 +195,10 @@ export default function CartScreen() {
                         <Ionicons name="add" size={14} color={C.ink} />
                       </TouchableOpacity>
                     </View>
+                    </View>
                   </View>
                 </View>
-              </View>
+              </StaggerIn>
             ))}
           </View>
         )}

@@ -12,7 +12,7 @@ import { CartProvider } from '../context/CartContext';
 import { WishlistProvider } from '../context/WishlistContext';
 import { CartDrawerModal } from '../components/cart/CartDrawerModal';
 import { WishlistDrawerModal } from '../components/wishlist/WishlistDrawerModal';
-import { LocationPickerModal } from '../components/location/LocationPickerModal';
+import { LocationPickerModal } from '../components/location';
 import { AdminFloatingBar } from '../components/admin/AdminFloatingBar';
 
 import { ProductTransitionProvider } from '../context/ProductTransitionContext';

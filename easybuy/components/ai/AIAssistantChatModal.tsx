@@ -16,6 +16,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   chatWithEasyBuyAI,
   AIChatMessage,
@@ -23,6 +25,7 @@ import {
 } from '../../services/groqAI';
 import { voiceRecognition } from '../../services/voiceRecognition';
 import { useCart } from '../../context/CartContext';
+import { useWishlist } from '../../context/WishlistContext';
 import { useAddress } from '../../context/AddressContext';
 
 const { width } = Dimensions.get('window');
@@ -56,13 +59,14 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
   isDarkMode = false,
 }) => {
   const { addToCart } = useCart();
+  const { toggleWishlist } = useWishlist();
   const { selectedStateName } = useAddress();
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome_1',
       sender: 'assistant',
-      text: 'Namaste! Main hoon aapka EasyBuy AI Assistant 🧠. Aap mujhse shopping, recipes, gift recommendations, college outfits, ya kisi bhi cheez ke baare mein baat kar sakte hain. Aaj main aapki kya madad karoon?',
+      text: 'Hey there! I am your EasyBuy AI Assistant 🧠. Whether you need a midnight Maggi restock, a last-minute birthday gift, or just some college outfit advice, main sambhal lunga (I got this). What’s on your mind today?',
       timestamp: 'Just now',
     },
   ]);
@@ -118,11 +122,18 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
     setIsTyping(true);
 
     try {
-      // Build conversation history
-      const history: AIChatMessage[] = [...messages, userMsg].map((m) => ({
-        role: m.sender === 'user' ? 'user' : 'assistant',
-        content: m.text,
-      }));
+      // Build conversation history (Ensure the AI actually sees the bundles it previously generated)
+      const history: AIChatMessage[] = [...messages, userMsg].map((m) => {
+        let content = m.text;
+        if (m.bundle && m.bundle.items && m.bundle.items.length > 0) {
+          const itemsText = m.bundle.items.map((it, idx) => `${idx + 1}. ${it.name} (ID: ${it.id})`).join(', ');
+          content += `\n[I showed the user these items: ${itemsText}]`;
+        }
+        return {
+          role: m.sender === 'user' ? 'user' : 'assistant',
+          content: content,
+        };
+      });
 
       const res = await chatWithEasyBuyAI(history, selectedStateName);
 
@@ -136,6 +147,10 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
 
       setMessages((prev) => [...prev, aiMsg]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      
+      // Auto-Execution of cart actions has been intentionally removed per user request.
+      // The AI should only suggest items in the chat interface; the user will manually tap them to add to cart.
+
     } catch (e) {
       console.log('[AIAssistantChat] Error:', e);
       setMessages((prev) => [
@@ -204,6 +219,7 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <BlurView intensity={30} tint={isDarkMode ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -223,9 +239,6 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
                 <Text style={[styles.headerTitle, isDarkMode && { color: '#F8FAFC' }]}>
                   EasyBuy AI Concierge
                 </Text>
-                <View style={styles.aiPill}>
-                  <Text style={styles.aiPillTxt}>Groq AI</Text>
-                </View>
               </View>
               <Text style={[styles.headerSub, isDarkMode && { color: '#94A3B8' }]}>
                 {selectedStateName ? `Active in ${selectedStateName}` : 'Always Online • Ask anything'}
@@ -285,36 +298,40 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
                 )}
 
                 <View style={{ maxWidth: '82%' }}>
-                  <View
-                    style={[
-                      styles.messageBubble,
-                      msg.sender === 'user'
-                        ? styles.userBubble
-                        : isDarkMode
-                        ? styles.aiBubbleDark
-                        : styles.aiBubble,
-                    ]}
-                  >
-                    <Text
+                  {msg.sender === 'user' ? (
+                    <LinearGradient
+                      colors={['#10B981', '#059669']} // Premium Emerald gradient
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[styles.messageBubble, styles.userBubble]}
+                    >
+                      <Text style={[styles.messageText, styles.userText]}>
+                        {msg.text}
+                      </Text>
+                    </LinearGradient>
+                  ) : (
+                    <View
                       style={[
-                        styles.messageText,
-                        msg.sender === 'user'
-                          ? styles.userText
-                          : isDarkMode
-                          ? styles.aiTextDark
-                          : styles.aiText,
+                        styles.messageBubble,
+                        isDarkMode ? styles.aiBubbleDark : styles.aiBubble,
                       ]}
                     >
-                      {msg.text}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.messageText,
+                          isDarkMode ? styles.aiTextDark : styles.aiText,
+                        ]}
+                      >
+                        {msg.text}
+                      </Text>
 
-                    {/* ── ATTACHED PRODUCT / RECIPE BUNDLE CARD ── */}
-                    {msg.bundle && msg.bundle.items && msg.bundle.items.length > 0 && (
-                      <View style={styles.embeddedBundleCard}>
-                        <View style={styles.bundleCardHeader}>
-                          <Text style={{ fontSize: 24 }}>{msg.bundle.emoji}</Text>
-                          <View style={{ flex: 1, marginLeft: 8 }}>
-                            <Text style={styles.bundleCardTitle}>{msg.bundle.title}</Text>
+                      {/* ── ATTACHED PRODUCT / RECIPE BUNDLE CARD ── */}
+                      {msg.bundle && msg.bundle.items && msg.bundle.items.length > 0 && (
+                        <View style={styles.embeddedBundleCard}>
+                          <View style={styles.bundleCardHeader}>
+                            <Text style={{ fontSize: 24 }}>{msg.bundle.emoji}</Text>
+                            <View style={{ flex: 1, marginLeft: 8 }}>
+                              <Text style={styles.bundleCardTitle}>{msg.bundle.title}</Text>
                             {msg.bundle.tagline && (
                               <Text style={styles.bundleCardTagline}>{msg.bundle.tagline}</Text>
                             )}
@@ -360,6 +377,7 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
                       </View>
                     )}
                   </View>
+                  )}
 
                   <Text
                     style={[
@@ -759,3 +777,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+
+

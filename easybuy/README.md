@@ -1,50 +1,136 @@
-# Welcome to your Expo app 👋
+# EasyBuy — Smart Indian E-Commerce App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A full-featured, production-ready e-commerce mobile application built with **React Native** and **Expo**, designed for the Indian market. EasyBuy combines a rich consumer shopping experience with a powerful admin dashboard.
 
-## Get started
+---
 
-1. Install dependencies
+## Features
 
-   ```bash
-   npm install
-   ```
+### Consumer App
+- **QuickBuy** — 10–20 minute express delivery for essential products
+- **AI Voice Shopping** — Gemini-powered voice assistant for hands-free product search
+- **AI Chat Assistant** — Smart product recommendations via chat
+- **Smart Trending Banners** — Location-aware trending product suggestions
+- **Curated Editorial Sections** — Premium browsing experience with lifestyle collections
+- **Real-time Cart & Wishlist** — Persistent across sessions with Firebase sync
+- **Regional Catalog** — State and UT-specific product listings across all 36 Indian states and UTs
+- **Dark / Light Mode** — User-selectable app theme
 
-2. Start the app
+### Admin Dashboard
+- **Product Management** — Add, edit, and delete products with image support
+- **Order Management** — View and update order statuses in real time
+- **Analytics Dashboard** — Revenue charts, weekly trends, and KPI cards
+- **Customer Insights** — Registered user tracking with order history
+- **Category Management** — Organise products into searchable categories
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## Tech Stack
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+| Layer | Technology |
+|-------|-----------|
+| Framework | Expo SDK 54 (React Native) |
+| Navigation | Expo Router (file-based) |
+| Database | Firebase Firestore |
+| Auth | Firebase Authentication |
+| Animations | React Native Reanimated 3 |
+| AI | Groq AI + Gemini API |
+| State | React Context API |
+| Language | TypeScript |
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Get a fresh project
+## Project Structure
 
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+easybuy/
+├── app/                    # Expo Router screens (file-based routing)
+│   ├── _layout.tsx         # Root layout with providers
+│   ├── home.tsx            # Main home screen
+│   ├── admin.tsx           # Admin dashboard
+│   ├── orders.tsx          # Order history
+│   ├── quickbuy.tsx        # QuickBuy express screen
+│   └── ...
+├── components/             # Reusable UI components
+│   ├── admin/              # Admin-specific components
+│   ├── ai/                 # AI chat and voice components
+│   ├── cart/               # Cart drawer and modals
+│   ├── home/               # Home screen sections
+│   ├── search/             # Search and filter modals
+│   └── ui/                 # Shared UI primitives
+├── constants/              # Static data, catalog generators, theme
+├── context/                # React Context providers (Auth, Cart, etc.)
+├── hooks/                  # Custom React hooks
+│   ├── useAdminCheck.ts
+│   ├── useDebounce.ts
+│   └── useThemePreference.ts
+├── services/               # Firebase config, AI services, email
+├── types/                  # Shared TypeScript type definitions
+└── utils/                  # Pure utility functions
+    ├── formatters.ts       # Price, date, string formatters
+    ├── arrayUtils.ts       # Shuffle, groupBy, chunk helpers
+    └── validators.ts       # Form validation (email, phone, etc.)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## Getting Started
 
-To learn more about developing your project with Expo, look at the following resources:
+### Prerequisites
+- Node.js 18+
+- Expo CLI (`npm install -g expo-cli`)
+- Expo Go app on your phone, or an Android/iOS emulator
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Installation
 
-## Join the community
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd easybuy
 
-Join our community of developers creating universal apps.
+# Install dependencies
+npm install
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### Environment Setup
+
+Create a `.env` file in the root with your Firebase credentials:
+
+```env
+EXPO_PUBLIC_FIREBASE_API_KEY=your_api_key
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id
+```
+
+### Running the App
+
+```bash
+# Start the development server
+npx expo start
+
+# Clear cache if needed
+npx expo start -c
+```
+
+Then scan the QR code with Expo Go, or press `a` for Android emulator / `i` for iOS simulator.
+
+---
+
+## Admin Access
+
+To access the admin dashboard, log in with the admin credentials and tap the hidden admin button on the home screen, or navigate directly to `/admin`.
+
+---
+
+## Firebase Setup
+
+See `FIRESTORE_SEED_GUIDE.md` for instructions on seeding the Firestore database with initial product and category data.
+
+---
+
+## License
+
+This project was built as an internship project. All rights reserved.

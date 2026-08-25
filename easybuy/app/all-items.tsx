@@ -20,6 +20,7 @@ import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { db } from '../services/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { generateFullIndianCatalog } from '../constants/catalogGenerator';
+import { PressableScale, StaggerIn } from '../components/ui/motion';
 
 const { width } = Dimensions.get('window');
 
@@ -116,52 +117,52 @@ export default function AllItemsScreen() {
     });
   }, [searchQuery]);
 
-  const renderProductItem = (item: any) => {
+  const renderProductItem = (item: any, idx: number) => {
     return (
-      <TouchableOpacity
-        key={item.id}
-        style={[styles.productGridCard, isDark && styles.productGridCardDark]}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-          router.push({
-            pathname: '/product/[id]',
-            params: {
-              id: item.id,
-              title: item.title || item.name,
-              price: item.priceNumber || item.price,
-              image: item.thumbnail || item.image,
-            }
-          } as any);
-        }}
-        activeOpacity={0.9}
-      >
-        <Image source={{ uri: item.thumbnail || item.image }} style={styles.productCardImage} resizeMode="cover" />
-        <View style={styles.productCardInfo}>
-          <Text style={styles.productCategoryLabel}>{item.categoryName}</Text>
-          <Text style={[styles.productCardTitle, isDark && styles.textLight]} numberOfLines={2}>
-            {item.title || item.name}
-          </Text>
-          <View style={styles.productCardRow}>
-            <Text style={styles.productCardPrice}>₹{item.priceNumber || item.price}</Text>
-            <TouchableOpacity
-              style={styles.productQuickAddBtn}
-              onPress={() => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-                addToCart({
-                  id: item.id,
-                  title: item.title || item.name,
-                  price: `₹${item.priceNumber || item.price}`,
-                  image: item.thumbnail || item.image,
-                  quantity: 1,
-                });
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="add" size={16} color="#FFFFFF" />
-            </TouchableOpacity>
+      <StaggerIn key={item.id} index={idx % 8} delayStep={60}>
+        <PressableScale
+          style={[styles.productGridCard, isDark && styles.productGridCardDark]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            router.push({
+              pathname: '/product/[id]',
+              params: {
+                id: item.id,
+                title: item.title || item.name,
+                price: item.priceNumber || item.price,
+                image: item.thumbnail || item.image,
+              }
+            } as any);
+          }}
+        >
+          <Image source={{ uri: item.thumbnail || item.image }} style={styles.productCardImage} resizeMode="cover" />
+          <View style={styles.productCardInfo}>
+            <Text style={styles.productCategoryLabel}>{item.categoryName}</Text>
+            <Text style={[styles.productCardTitle, isDark && styles.textLight]} numberOfLines={2}>
+              {item.title || item.name}
+            </Text>
+            <View style={styles.productCardRow}>
+              <Text style={styles.productCardPrice}>₹{item.priceNumber || item.price}</Text>
+              <TouchableOpacity
+                style={styles.productQuickAddBtn}
+                onPress={() => {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                  addToCart({
+                    id: item.id,
+                    title: item.title || item.name,
+                    price: `₹${item.priceNumber || item.price}`,
+                    image: item.thumbnail || item.image,
+                    quantity: 1,
+                  });
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </TouchableOpacity>
+        </PressableScale>
+      </StaggerIn>
     );
   };
 
@@ -425,7 +426,7 @@ export default function AllItemsScreen() {
     if (!cat || !meta) return null;
 
     return (
-      <TouchableOpacity
+      <PressableScale
         key={id}
         style={[
           styles.cardBase,
@@ -435,7 +436,6 @@ export default function AllItemsScreen() {
           isDark && styles.cardDark,
         ]}
         onPress={() => handleCategoryPress(id)}
-        activeOpacity={0.88}
       >
         <Image source={{ uri: meta.image }} style={styles.cardImage} resizeMode="cover" />
         <View style={styles.cardGradientOverlay} />
@@ -448,7 +448,7 @@ export default function AllItemsScreen() {
             <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
           </View>
         </View>
-      </TouchableOpacity>
+      </PressableScale>
     );
   };
 
@@ -637,31 +637,31 @@ export default function AllItemsScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.spotlightScroll}
               >
-                {dailySpotlights.map((item: any) => {
+                {dailySpotlights.map((item: any, spotIdx) => {
                   const meta = CATEGORY_VISUALS[item.id];
                   if (!meta) return null;
 
                   return (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={[styles.spotlightCard, isDark && styles.spotlightCardDark]}
-                      onPress={() => handleCategoryPress(item.id)}
-                      activeOpacity={0.88}
-                    >
-                      <Image source={{ uri: meta.image }} style={styles.spotlightImg} resizeMode="cover" />
-                      <View style={styles.spotlightGradient} />
-                      <View style={styles.spotlightBadgePill}>
-                        <Text style={styles.spotlightBadgeTxt}>{item.badge}</Text>
-                      </View>
-                      <View style={styles.spotlightInfo}>
-                        <Text style={styles.spotlightCardTitle} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        <Text style={styles.spotlightCardTag} numberOfLines={1}>
-                          {item.tag}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
+                    <StaggerIn key={item.id} index={spotIdx} distance={30}>
+                      <PressableScale
+                        style={[styles.spotlightCard, isDark && styles.spotlightCardDark]}
+                        onPress={() => handleCategoryPress(item.id)}
+                      >
+                        <Image source={{ uri: meta.image }} style={styles.spotlightImg} resizeMode="cover" />
+                        <View style={styles.spotlightGradient} />
+                        <View style={styles.spotlightBadgePill}>
+                          <Text style={styles.spotlightBadgeTxt}>{item.badge}</Text>
+                        </View>
+                        <View style={styles.spotlightInfo}>
+                          <Text style={styles.spotlightCardTitle} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <Text style={styles.spotlightCardTag} numberOfLines={1}>
+                            {item.tag}
+                          </Text>
+                        </View>
+                      </PressableScale>
+                    </StaggerIn>
                   );
                 })}
               </ScrollView>
@@ -709,7 +709,7 @@ export default function AllItemsScreen() {
                     <View>
                       <Text style={[styles.searchSectionTitle, isDark && styles.textLight]}>Products Found ({matchedProducts.length})</Text>
                       <View style={styles.productGrid}>
-                        {matchedProducts.map(renderProductItem)}
+                        {matchedProducts.map((item, idx) => renderProductItem(item, idx))}
                       </View>
                     </View>
                   )}

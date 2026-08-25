@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 // expo-notifications push tokens were removed from Expo Go in SDK 53.
 // We import lazily only when running in a real build (not Expo Go on Android).
 import * as Location from 'expo-location';
@@ -89,6 +90,11 @@ export function normalizeStateToId(rawState: string | null | undefined): { state
 export async function requestNotificationPermission(): Promise<boolean> {
   try {
     // Push notifications not available in Expo Go on Android (SDK 53+). Safe no-op.
+    if (Constants.appOwnership === 'expo') {
+      await AsyncStorage.setItem('easybuy_notification_permission', 'denied');
+      return false;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const Notifications = require('expo-notifications');
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -103,7 +109,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
     await AsyncStorage.setItem('easybuy_notification_permission', isGranted ? 'granted' : 'denied');
     return isGranted;
   } catch (e) {
-    // Silently fail in Expo Go — notifications are not supported there
+    // Silently fail in Expo Go - notifications are not supported there
     await AsyncStorage.setItem('easybuy_notification_permission', 'denied');
     return false;
   }

@@ -26,6 +26,7 @@ import { useLanguage } from '../context/LanguageContext';
 
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { sendOtpEmail } from '../services/emailService';
 
 const { width } = Dimensions.get('window');
 const APPLE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
@@ -42,6 +43,10 @@ export default function ForgotPasswordScreen() {
 
   // Target User Document ID in Firestore
   const [userDocId, setUserDocId] = useState<string | null>(null);
+  const [userNameForEmail, setUserNameForEmail] = useState<string>('');
+
+  // Real OTP state (replaces hardcoded 1234)
+  const [realOtp, setRealOtp] = useState<string>('');
 
   // Workflow Steps: 1 = Email, 2 = OTP, 3 = Reset Password, 4 = Success Dialog
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -140,8 +145,22 @@ export default function ForgotPasswordScreen() {
       }
 
       // Store matching document ID and proceed to Step 2 (OTP)
-      const docId = querySnapshot.docs[0].id;
+      const docSnap = querySnapshot.docs[0];
+      const docId = docSnap.id;
+      const userName = docSnap.data()?.fullName || docSnap.data()?.name || 'User';
       setUserDocId(docId);
+      setUserNameForEmail(userName);
+
+      // Generate real 6-digit OTP and send via EmailJS
+      const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      setRealOtp(generatedOtp);
+
+      try {
+        await sendOtpEmail(cleanEmail, userName, generatedOtp);
+      } catch (emailErr) {
+        console.error('Failed to send OTP email:', emailErr);
+      }
+
       setStep(2);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (error: any) {
@@ -152,7 +171,7 @@ export default function ForgotPasswordScreen() {
     }
   };
 
-  // ─── STEP 2: Verify Demo OTP 1234 ───
+  // ─── STEP 2: Verify Real OTP ───
   const handleVerifyOtp = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setOtpError('');
@@ -165,8 +184,8 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
-    if (cleanOtp !== '1234') {
-      setOtpError('Invalid OTP.');
+    if (cleanOtp !== realOtp) {
+      setOtpError('Invalid OTP. Please check your email and try again.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       return;
     }
@@ -385,7 +404,7 @@ export default function ForgotPasswordScreen() {
               </>
             )}
 
-            {/* ─── STEP 2: DEMO OTP VERIFICATION ─── */}
+            {/* ─── STEP 2: REAL OTP VERIFICATION ─── */}
             {step === 2 && (
               <>
                 {!!customError && (
@@ -394,20 +413,22 @@ export default function ForgotPasswordScreen() {
                   </View>
                 )}
 
-                {/* DEMO OTP CARD DISPLAY */}
+                {/* Info Card */}
                 <View style={styles.demoOtpBox}>
-                  <Text style={styles.demoOtpLabel}>Demo OTP</Text>
-                  <Text style={styles.demoOtpCode}>1234</Text>
+                  <Text style={styles.demoOtpLabel}>📧 Check Your Email</Text>
+                  <Text style={[styles.demoOtpCode, { fontSize: 13, fontWeight: '600' }]}>
+                    We sent a 6-digit code to your registered email address.
+                  </Text>
                 </View>
 
                 <AuthInput
                   label="OTP CODE"
                   icon="keypad-outline"
-                  placeholder="Enter 1234"
+                  placeholder="Enter 6-digit code"
                   value={otp}
                   onChangeText={(val) => { setOtp(val); setOtpError(''); }}
                   keyboardType="number-pad"
-                  maxLength={4}
+                  maxLength={6}
                   error={otpError}
                   containerStyle={{ marginBottom: 18 }}
                   onFocusStateChange={(focused) => setIsFocused(focused)}

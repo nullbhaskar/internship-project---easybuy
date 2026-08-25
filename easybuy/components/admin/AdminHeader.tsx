@@ -1,13 +1,12 @@
 import React from 'react';
 import {
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, S } from './adminTheme';
 import { AdminSection } from './adminTypes';
 
 interface AdminHeaderProps {
@@ -18,7 +17,7 @@ interface AdminHeaderProps {
 
 const SECTION_TITLES: Record<AdminSection, { title: string; subtitle: string }> = {
   dashboard:  { title: 'Dashboard',  subtitle: 'Store overview' },
-  products:   { title: 'Products',   subtitle: 'Manage catalog' },
+  products:   { title: 'Catalog',   subtitle: 'Manage catalog' },
   categories: { title: 'Categories', subtitle: 'Browse by category' },
   orders:     { title: 'Orders',     subtitle: 'Order management' },
   analytics:  { title: 'Analytics',  subtitle: 'Store insights' },
@@ -30,29 +29,29 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   onLogout,
   isFirebaseConnected = true,
 }) => {
-  const { title, subtitle } = SECTION_TITLES[activeSection] || SECTION_TITLES.dashboard;
+  const { title } = SECTION_TITLES[activeSection] || SECTION_TITLES.dashboard;
 
   return (
     <View style={styles.container}>
-      {/* Left — Logo + Title */}
+      {/* Left � Logo + Title */}
       <View style={styles.left}>
         <View style={styles.logoWrap}>
-          <Ionicons name="shield-checkmark" size={20} color={C.primary} />
+          <Ionicons name="storefront-outline" size={16} color="#4F46E5" />
         </View>
-        <View>
-          <View style={styles.titleRow}>
-            <Text style={styles.appName}>EasyBuy</Text>
-            <View style={[styles.statusDot, { backgroundColor: isFirebaseConnected ? C.success : C.danger }]} />
-          </View>
-          <Text style={styles.sectionSub}>{subtitle}</Text>
-        </View>
+        <Text style={styles.appName}>{title}</Text>
       </View>
 
-      {/* Right — Actions */}
+      {/* Right � Actions & Profile */}
       <View style={styles.right}>
-        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.8}>
-          <Ionicons name="log-out-outline" size={16} color={C.danger} />
-          <Text style={styles.logoutText}>Logout</Text>
+        <TouchableOpacity style={styles.iconBtn}>
+          <Ionicons name="search" size={20} color="#475569" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity onPress={onLogout} style={styles.avatarWrap}>
+          <Image 
+            source={{ uri: 'https://i.pravatar.cc/100?img=11' }} 
+            style={styles.avatar} 
+          />
         </TouchableOpacity>
       </View>
     </View>
@@ -64,69 +63,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: S.lg,
-    paddingVertical: S.md,
-    backgroundColor: C.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
   },
   left: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: S.sm + 2,
+    gap: 12,
   },
   logoWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: C.primaryDim,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#EEF2FF',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: C.primaryGlow,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
   },
   appName: {
-    color: C.textPrimary,
+    color: '#0F172A',
     fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    marginTop: 1,
-  },
-  sectionSub: {
-    color: C.textMuted,
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 1,
+    fontWeight: '700',
   },
   right: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: S.sm,
+    gap: 16,
   },
-  logoutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: C.dangerDim,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(244,63,94,0.2)',
+  iconBtn: {
+    padding: 4,
   },
-  logoutText: {
-    color: C.danger,
-    fontSize: 12,
-    fontWeight: '700',
+  avatarWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
   },
 });

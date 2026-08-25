@@ -48,6 +48,14 @@ const GREETINGS_DB = {
       (name: string) => `Happy Pongal, ${name}. Celebrating a fresh harvest season with you today.`,
       (name: string) => `Wishing you a bountiful Makar Sankranti, ${name}. Enjoy the fresh harvest.`,
     ],
+    rakshabandhan: [
+      (name: string) => `Happy Raksha Bandhan, ${name}. Celebrate the bond with our special sweets.`,
+      (name: string) => `Wishing you a joyous Raksha Bandhan, ${name}. Share love and fresh fruits.`,
+    ],
+    onam: [
+      (name: string) => `Happy Onam, ${name}. Wishing you a season of happiness and a bountiful harvest.`,
+      (name: string) => `Wishing you a prosperous Onam, ${name}. Celebrate with our premium collections.`,
+    ],
   },
   campaigns: {
     flash: [
@@ -196,11 +204,11 @@ export function getDynamicWelcomeMessage(
   if ((month === 0 && date === 26) || (month === 7 && date === 15)) {
     return selectRandomCopy(GREETINGS_DB.festivals.national, name);
   }
-  if (month === 7 && date >= 25 && date <= 31) {
-    return selectRandomCopy(GREETINGS_DB.festivals.pongal, name); // Raksha bandhan / regional
+  if (month === 7 && date === 28) {
+    return selectRandomCopy(GREETINGS_DB.festivals.rakshabandhan, name); // Raksha bandhan (Aug 28 2026)
   }
-  if (month === 8 && date >= 2 && date <= 7) {
-    return selectRandomCopy(GREETINGS_DB.festivals.pongal, name); // Onam approximate
+  if (month === 7 && date === 26) {
+    return selectRandomCopy(GREETINGS_DB.festivals.onam, name); // Onam (Aug 26 2026)
   }
   if (month === 9 && date >= 12 && date <= 22) {
     return selectRandomCopy(GREETINGS_DB.festivals.navratri, name);

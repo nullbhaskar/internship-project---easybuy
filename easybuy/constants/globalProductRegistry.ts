@@ -380,7 +380,7 @@ export function lookupProduct(id: string, params: Record<string, any> = {}): Pro
   // If not found in map by ID, try searching by title keyword
   if (!matched && paramTitle) {
     const titleLower = String(paramTitle).toLowerCase();
-    for (const [_, item] of GLOBAL_PRODUCT_MAP.entries()) {
+    for (const [_, item] of Array.from(GLOBAL_PRODUCT_MAP.entries())) {
       if (item && (item.title || item.name) && String(item.title || item.name).toLowerCase() === titleLower) {
         matched = item;
         break;

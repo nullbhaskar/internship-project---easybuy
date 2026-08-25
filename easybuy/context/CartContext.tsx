@@ -8,6 +8,7 @@ import { useAuth } from './AuthContext';
 export interface CartItem {
   id: string;
   title: string;
+  name?: string;
   price: string;
   originalPrice?: string;
   image?: string;
@@ -51,30 +52,23 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isCartOpen, setIsCartOpen] = useState(false);
   const { isGuest, isAuthenticated, user, requireAuth } = useAuth();
 
-  // Load Cart from AsyncStorage and Firestore on mount / auth change
+  // Load Cart from Firestore on mount / auth change
   useEffect(() => {
     async function loadCartData() {
-      if (isGuest) {
-        setCartItems([]);
+      // Always clear cart first on user change (prevents cross-user leakage)
+      setCartItems([]);
+
+      if (isGuest || !isAuthenticated) {
         return;
       }
 
       try {
-        const localData = await AsyncStorage.getItem('easybuy_cart_items');
-        if (localData) {
-          const parsed = JSON.parse(localData);
-          if (Array.isArray(parsed)) {
-            setCartItems(parsed);
-          }
-        }
-
         const activeUid = user?.uid || auth.currentUser?.uid;
         if (activeUid) {
           const userDocRef = doc(db, 'users', activeUid);
           const snap = await getDoc(userDocRef);
           if (snap.exists() && snap.data().cart) {
             setCartItems(snap.data().cart);
-            await AsyncStorage.setItem('easybuy_cart_items', JSON.stringify(snap.data().cart));
           }
         }
       } catch (e) {

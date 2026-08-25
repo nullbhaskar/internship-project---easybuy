@@ -1848,8 +1848,14 @@ const KEYWORD_TO_POOL: Array<[string, keyof typeof IMG]> = [
   ['griller', 'kitchen'],
 ];
 
+let fullIndianCatalogCache: ProductItem[] | null = null;
+
 // Helper to generate full catalog programmatically (~4500 products) with STRICT category alignment
 export function generateFullIndianCatalog(): ProductItem[] {
+  if (fullIndianCatalogCache) {
+    return fullIndianCatalogCache;
+  }
+
   const products: ProductItem[] = [];
   let idCounter = 1000;
 
@@ -2033,5 +2039,6 @@ export function generateFullIndianCatalog(): ProductItem[] {
     }
   }
 
-  return products;
+  fullIndianCatalogCache = products;
+  return fullIndianCatalogCache;
 }

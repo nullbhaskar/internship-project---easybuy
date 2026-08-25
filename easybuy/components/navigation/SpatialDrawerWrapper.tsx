@@ -8,14 +8,15 @@ import {
   Animated,
   PanResponder,
   PanResponderGestureState,
-  SafeAreaView,
   Image,
   Easing,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
+import { useAddress } from '../../context/AddressContext';
 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -39,8 +40,7 @@ export interface MenuItemData {
 
 const MAIN_MENU_ITEMS: MenuItemData[] = [
   { id: 'categories', label: 'Categories', icon: 'grid-outline' },
-  { id: 'wallet', label: 'Wallet', icon: 'wallet-outline' },
-  { id: 'loyalty', label: 'Loyalty & Subscription', icon: 'ribbon-outline' },
+
   { id: 'locations', label: 'Locations', icon: 'location-outline' },
   { id: 'gift_ideas', label: 'Gift Ideas', icon: 'gift-outline', badge: 'SOON' },
   { id: 'help', label: 'Help & Support', icon: 'help-circle-outline' },
@@ -62,6 +62,7 @@ interface SpatialDrawerWrapperProps {
   userName?: string;
   userEmail?: string;
   userAvatar?: string;
+  isEliteUser?: boolean;
 }
 
 export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWrapperProps>(
@@ -73,10 +74,12 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
       userName = 'Bhaskar',
       userEmail = 'bhaskar@email.com',
       userAvatar,
+      isEliteUser = false,
     },
     ref
   ) => {
     const [isOpen, setIsOpen] = useState(false);
+    const { selectedAddress, openLocationModal } = useAddress();
     const [pressedItemId, setPressedItemId] = useState<string | null>(null);
 
     // SINGLE SOURCE OF TRUTH: drawerProgress (0 = closed, 1 = open)
@@ -185,16 +188,20 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
     const panResponder = useRef(
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (_, gestureState: PanResponderGestureState) => {
-          const { dx, dy, moveX } = gestureState;
-          if (!isOpenRef.current && moveX < 32 && dx > 8 && Math.abs(dx) > Math.abs(dy)) {
+          const { dx, dy, moveX, vx } = gestureState;
+          // Only capture clear horizontal swipes (high dx, low dy, minimal velocity)
+          // dx > 20 prevents accidentally stealing taps on Android
+          if (!isOpenRef.current && moveX < 32 && dx > 20 && Math.abs(dx) > Math.abs(dy) * 2) {
             return true;
           }
-          if (isOpenRef.current && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+          if (isOpenRef.current && dx < -20 && Math.abs(dx) > Math.abs(dy) * 2) {
             return true;
           }
           return false;
         },
+        onMoveShouldSetPanResponderCapture: () => false,
         onPanResponderGrant: () => {
           drawerProgress.stopAnimation();
         },
@@ -417,17 +424,25 @@ export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWr
                   {userAvatar ? (
                     <Image source={{ uri: userAvatar }} style={styles.avatarImg} />
                   ) : (
-                    <View style={styles.avatarCircle}>
-                      <Ionicons name="person" size={20} color="#52C480" />
-                    </View>
+                    <Image 
+                      source={{ uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=random&color=fff&size=100` }} 
+                      style={styles.avatarImg} 
+                    />
                   )}
                   <View style={styles.headerTextWrap}>
                     <Text style={styles.headerName} numberOfLines={1}>{userName}</Text>
                     <Text style={styles.headerEmail} numberOfLines={1}>{userEmail}</Text>
-                    <Animated.View style={[styles.vipTagPill, { opacity: badgeShimmer }]}>
-                      <Ionicons name="sparkles" size={10} color="#F6C450" style={{ marginRight: 4 }} />
-                      <Text style={styles.vipTagTxt}>EASYBUY PRO</Text>
-                    </Animated.View>
+                    {isEliteUser ? (
+                      <Animated.View style={[styles.vipTagPill, { opacity: badgeShimmer }]}>
+                        <Ionicons name="sparkles" size={10} color="#F6C450" style={{ marginRight: 4 }} />
+                        <Text style={styles.vipTagTxt}>EASYBUY PRO</Text>
+                      </Animated.View>
+                    ) : (
+                      <View style={[styles.vipTagPill, { backgroundColor: 'rgba(47,110,73,0.3)' }]}>
+                        <Ionicons name="location" size={10} color="#89B882" style={{ marginRight: 4 }} />
+                        <Text style={[styles.vipTagTxt, { color: '#89B882' }]} numberOfLines={1}>{selectedAddress?.city && selectedAddress.city !== 'City' ? selectedAddress.city : 'Set Location'}</Text>
+                      </View>
+                    )}
                   </View>
                 </TouchableOpacity>
               </Animated.View>

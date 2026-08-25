@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { auth, db } from '../services/firebase';
 import { doc, getDoc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
@@ -27,8 +28,8 @@ import { useWishlist } from '../context/WishlistContext';
 import { useCart } from '../context/CartContext';
 import { useAddress } from '../context/AddressContext';
 import { useAuth } from '../context/AuthContext';
-import { WalletModal } from '../components/wallet/WalletModal';
-import { LoyaltyModal } from '../components/loyalty/LoyaltyModal';
+
+
 import { SpatialDrawerWrapper, SpatialDrawerRef } from '../components/navigation/SpatialDrawerWrapper';
 const { width } = Dimensions.get('window');
 
@@ -51,11 +52,15 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { openWishlist, wishlistItems } = useWishlist();
   const { openCart, totalItems } = useCart();
-  const { openLocationModal } = useAddress();
+  const { openLocationModal, selectedAddress } = useAddress();
   const { isDarkMode: darkMode } = useEasyBuyTheme();
-  const { isGuest, isAuthenticated, user, logout, openAuthModal, exitGuestMode } = useAuth();
+  const { isGuest, isAuthenticated, user, logout, openAuthModal, exitGuestMode, setAuthenticatedUser } = useAuth();
   const spatialDrawerRef = React.useRef<SpatialDrawerRef>(null);
   const isDark = darkMode;
+
+  // Only the owner's account gets the ELITE badge and Aura Plus membership
+  const ELITE_EMAIL = 'bhaskardaspatna@gmail.com';
+  const isEliteUser = (user?.email || '').toLowerCase() === ELITE_EMAIL.toLowerCase();
 
   const [userName, setUserName] = useState(user?.fullName || 'Bhaskar');
   const [userEmail, setUserEmail] = useState(user?.email || 'bhaskar@example.com');
@@ -72,11 +77,12 @@ export default function ProfileScreen() {
   // Personal Info Edit states
   const [editName, setEditName] = useState(user?.fullName || '');
   const [editEmail, setEditEmail] = useState(user?.email || '');
+  const [editAvatar, setEditAvatar] = useState(user?.photoURL || '');
 
-  // Modal visibilities
+  // Modals visibilities
   const [editProfileVisible, setEditProfileVisible] = useState(false);
-  const [walletModalVisible, setWalletModalVisible] = useState(false);
-  const [loyaltyModalVisible, setLoyaltyModalVisible] = useState(false);
+  
+  
   const [privacyVisible, setPrivacyVisible] = useState(false);
 
   // Sync user profile from auth context
@@ -93,6 +99,9 @@ export default function ProfileScreen() {
       if (user.phone) {
         setUserPhone(user.phone);
         setEditPhone(user.phone);
+      }
+      if (user.photoURL) {
+        setEditAvatar(user.photoURL);
       }
       if (user.gender) {
         setUserGender(user.gender);
@@ -130,6 +139,9 @@ export default function ProfileScreen() {
               setUserDob(data.dob);
               setEditDob(data.dob);
             }
+            if (data.photoURL) {
+              setEditAvatar(data.photoURL);
+            }
           }
         } catch (e) {
           console.log('Error fetching user profile:', e);
@@ -141,17 +153,21 @@ export default function ProfileScreen() {
 
   // Listen to live orders count
   useEffect(() => {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return;
+    const activeUid = user?.uid || auth.currentUser?.uid;
+    const activeEmail = user?.email || auth.currentUser?.email;
+    if (!activeUid && !activeEmail) return;
 
+    const isAdmin = activeEmail === 'admineasybuy@gmail.com';
     const collRef = collection(db, 'orders');
     const unsubscribe = onSnapshot(collRef, (snapshot) => {
       let count = 0;
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        if (data.userEmail === currentUser.email || currentUser.email === 'admineasybuy@gmail.com') {
-          count++;
-        }
+        if (isAdmin) { count++; return; }
+        const matchEmail = activeEmail && data.userEmail &&
+          data.userEmail.toLowerCase() === activeEmail.toLowerCase();
+        const matchUid = activeUid && data.userId && data.userId === activeUid;
+        if (matchEmail || matchUid) count++;
       });
       setOrdersCount(count);
     }, (err) => {
@@ -159,30 +175,85 @@ export default function ProfileScreen() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [user?.uid]);
+
+  const pickImage = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Required', 'You need to grant camera roll permissions to change your avatar.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.2, // Low quality for base64 saving to Firestore
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        // Use base64 if available to avoid Firebase Storage setup, or fallback to uri
+        const base64Data = result.assets[0].base64 ? `data:image/jpeg;base64,${result.assets[0].base64}` : result.assets[0].uri;
+        setEditAvatar(base64Data);
+      }
+    } catch (error) {
+      console.log('Error picking image', error);
+      Alert.alert('Error', 'Failed to pick image.');
+    }
+  };
 
   const handleUpdateProfile = async () => {
-    const currentUser = auth.currentUser;
-    if (!currentUser) return;
+    // Support both Firebase Auth and custom Firestore auth
+    const activeUid = auth.currentUser?.uid || user?.uid;
+    if (!activeUid) {
+      Alert.alert('Error', 'You must be logged in to update your profile.');
+      return;
+    }
+
+    if (!editName.trim()) {
+      Alert.alert('Error', 'Full name cannot be empty.');
+      return;
+    }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     try {
-      // Update Firebase Auth profile
-      await updateProfile(currentUser, { displayName: editName });
-      
+      // Update Firebase Auth display name and photoURL if firebase user exists
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, { 
+          displayName: editName.trim(),
+          photoURL: editAvatar || auth.currentUser.photoURL
+        });
+      }
+
       // Update Firestore user document
-      const userRef = doc(db, 'users', currentUser.uid);
+      const userRef = doc(db, 'users', activeUid);
       await setDoc(userRef, {
-        fullName: editName,
-        phone: editPhone,
+        fullName: editName.trim(),
+        phone: editPhone.trim(),
         gender: editGender,
-        dob: editDob,
+        dob: editDob.trim(),
+        photoURL: editAvatar, // Save base64 image or URL to Firestore
       }, { merge: true });
 
-      setUserName(editName);
-      setUserPhone(editPhone);
+      // Also update the local AuthContext user so the name refreshes on screen instantly
+      if (user) {
+        await setAuthenticatedUser({
+          ...user,
+          fullName: editName.trim(),
+          phone: editPhone.trim(),
+          gender: editGender,
+          dob: editDob.trim(),
+          photoURL: editAvatar,
+        });
+      }
+
+      setUserName(editName.trim());
+      setUserPhone(editPhone.trim());
       setUserGender(editGender);
-      setUserDob(editDob);
+      setUserDob(editDob.trim());
       setEditProfileVisible(false);
       Alert.alert('Success', 'Profile updated successfully!');
     } catch (e) {
@@ -206,21 +277,22 @@ export default function ProfileScreen() {
     <SpatialDrawerWrapper
       ref={spatialDrawerRef}
       userName={userName || 'Bhaskar'}
-      userEmail={userEmail || 'bhaskar@example.com'}
-      userAvatar={auth.currentUser?.photoURL || undefined}
+      userEmail={user?.email || userEmail || 'bhaskar@email.com'}
+      userAvatar={user?.photoURL || undefined}
+      isEliteUser={isEliteUser}
       onSelectMenuItem={(itemId) => {
         if (itemId === 'categories') {
           router.push('/all-items' as any);
         } else if (itemId === 'wallet') {
-          setWalletModalVisible(true);
+          
         } else if (itemId === 'loyalty') {
-          setLoyaltyModalVisible(true);
+          
         } else if (itemId === 'locations') {
           openLocationModal();
         } else if (itemId === 'gift_ideas') {
           Alert.alert('Gift Ideas', 'Coming Soon!');
         } else if (itemId === 'help') {
-          setLoyaltyModalVisible(true);
+          
         } else if (itemId === 'logout') {
           handleLogout();
         }
@@ -451,14 +523,27 @@ export default function ProfileScreen() {
               <View style={S.avatarCenteredContainer}>
                 <View style={S.avatarWrapper}>
                   <Image
-                    source={{ uri: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80' }}
+                    source={{ uri: user?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=random&color=fff&size=300` }}
                     style={S.avatarImg}
                   />
-                  {/* Elite Badge Overlay */}
-                  <View style={S.eliteBadge}>
-                    <Ionicons name="ribbon" size={10} color="#0F172A" style={{ marginRight: 2 }} />
-                    <Text style={S.eliteBadgeText}>ELITE</Text>
-                  </View>
+                  {/* Elite Badge Overlay — only for owner account */}
+                  {isEliteUser ? (
+                    <View style={S.eliteBadge}>
+                      <Ionicons name="ribbon" size={10} color="#0F172A" style={{ marginRight: 2 }} />
+                      <Text style={S.eliteBadgeText}>ELITE</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity 
+                      style={[S.eliteBadge, { backgroundColor: '#89B882' }]}
+                      onPress={openLocationModal}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="location" size={10} color="#0F172A" style={{ marginRight: 2 }} />
+                      <Text style={S.eliteBadgeText}>
+                        {selectedAddress?.city && selectedAddress.city !== 'City' ? selectedAddress.city : 'Set Location'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 <Text style={[S.profileNameText, isDark && S.textLight]}>{userName}</Text>
                 <Text style={S.profileEmailText}>{userEmail}</Text>
@@ -497,7 +582,7 @@ export default function ProfileScreen() {
                   style={[S.statCard, isDark ? S.statCardDark : S.statCardLight]}
                   onPress={() => {
                     Haptics.selectionAsync().catch(() => {});
-                    setLoyaltyModalVisible(true);
+                    
                   }}
                   activeOpacity={0.8}
                 >
@@ -507,32 +592,47 @@ export default function ProfileScreen() {
               </View>
 
               {/* ══ MEMBERSHIP BANNER ════════════════════════════ */}
-              <View style={[S.membershipCard, isDark && S.membershipCardDark]}>
-                <View style={S.membershipTopRow}>
-                  <View>
-                    <Text style={S.membershipTitle}>Aura Plus</Text>
-                    <Text style={S.membershipSub}>Premium Membership</Text>
+              {isEliteUser ? (
+                <View style={[S.membershipCard, isDark && S.membershipCardDark]}>
+                  <View style={S.membershipTopRow}>
+                    <View>
+                      <Text style={S.membershipTitle}>Aura Plus</Text>
+                      <Text style={S.membershipSub}>Premium Membership</Text>
+                    </View>
+                    <Ionicons name="diamond" size={24} color="#F6CC63" />
                   </View>
-                  <Ionicons name="diamond" size={24} color="#F6CC63" />
-                </View>
 
-                <View style={S.membershipBottomRow}>
-                  <View>
-                    <Text style={S.validLabel}>VALID THRU</Text>
-                    <Text style={S.validDate}>12/24</Text>
+                  <View style={S.membershipBottomRow}>
+                    <View>
+                      <Text style={S.validLabel}>VALID THRU</Text>
+                      <Text style={S.validDate}>12/24</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={S.viewBenefitsBtn}
+                      onPress={() => {
+                        Haptics.selectionAsync().catch(() => {});
+                        
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={S.viewBenefitsText}>View Benefits</Text>
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    style={S.viewBenefitsBtn}
-                    onPress={() => {
-                      Haptics.selectionAsync().catch(() => {});
-                      setLoyaltyModalVisible(true);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={S.viewBenefitsText}>View Benefits</Text>
-                  </TouchableOpacity>
                 </View>
-              </View>
+              ) : (
+                <View style={[S.membershipCard, isDark && S.membershipCardDark, { backgroundColor: isDark ? '#1E293B' : '#F0F9F4' }]}>
+                  <View style={S.membershipTopRow}>
+                    <View>
+                      <Text style={[S.membershipTitle, { color: '#2F6E49' }]}>EasyBuy Member</Text>
+                      <Text style={S.membershipSub}>Standard Membership</Text>
+                    </View>
+                    <Ionicons name="shield-checkmark" size={24} color="#2F6E49" />
+                  </View>
+                  <View style={S.membershipBottomRow}>
+                    <Text style={[S.membershipSub, { color: '#64748B' }]}>Upgrade to Aura Plus for exclusive benefits!</Text>
+                  </View>
+                </View>
+              )}
 
               {/* ══ ACCOUNT OPTIONS SECTION ═════════════════════ */}
               <Text style={S.sectionHeader}>ACCOUNT</Text>
@@ -576,7 +676,7 @@ export default function ProfileScreen() {
                   style={S.settingRow}
                   onPress={() => {
                     Haptics.selectionAsync().catch(() => {});
-                    setWalletModalVisible(true);
+                    
                   }}
                   activeOpacity={0.75}
                 >
@@ -646,6 +746,31 @@ export default function ProfileScreen() {
             <View style={[S.modalSheet, isDark && S.modalSheetDark]}>
               <View style={S.modalHandle} />
               <Text style={[S.modalTitle, isDark && S.textLight]}>Edit Personal Information</Text>
+
+              {/* Avatar Editor */}
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <TouchableOpacity onPress={pickImage} style={{ position: 'relative' }}>
+                  <Image
+                    source={{ uri: editAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=random&color=fff&size=100` }}
+                    style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: isDark ? '#334155' : '#E2E8F0' }}
+                  />
+                  <View style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    right: 0,
+                    backgroundColor: '#10B981',
+                    borderRadius: 15,
+                    width: 28,
+                    height: 28,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 2,
+                    borderColor: isDark ? '#1E293B' : '#FFFFFF'
+                  }}>
+                    <Ionicons name="camera" size={14} color="#FFF" />
+                  </View>
+                </TouchableOpacity>
+              </View>
 
               <Text style={S.inputLabel}>Full Name</Text>
               <TextInput
@@ -747,8 +872,8 @@ export default function ProfileScreen() {
         </Modal>
 
         {/* Wallet & Loyalty Modals */}
-        <WalletModal visible={walletModalVisible} onClose={() => setWalletModalVisible(false)} isDarkMode={isDark} />
-        <LoyaltyModal visible={loyaltyModalVisible} onClose={() => setLoyaltyModalVisible(false)} isDarkMode={isDark} />
+        
+        
 
         {/* Navigation Dock */}
         <ExperimentalNavigation
@@ -1208,3 +1333,5 @@ const S = StyleSheet.create({
     color: '#64748B',
   },
 });
+
+

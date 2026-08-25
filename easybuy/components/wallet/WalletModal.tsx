@@ -17,6 +17,10 @@ interface WalletModalProps {
   visible: boolean;
   onClose: () => void;
   isDarkMode?: boolean;
+  balance?: number;
+  points?: number;
+  addBalance?: (amount: number) => void;
+  deductPoints?: (amount: number) => boolean;
 }
 
 const COUPONS = [
@@ -52,14 +56,8 @@ const POINT_REWARDS = [
   { id: 'p3', title: '1-Month Free Delivery Pass', points: 1200, emoji: '⚡' },
 ];
 
-export const WalletModal: React.FC<WalletModalProps> = ({
-  visible,
-  onClose,
-  isDarkMode = false,
-}) => {
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const [points, setPoints] = useState(1250);
-  const [balance, setBalance] = useState(450.0);
+export const WalletModal: React.FC<WalletModalProps> = ({ visible, onClose, isDarkMode = false, balance = 0, points = 0, addBalance = () => {}, deductPoints = () => false }) => {
+    const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const copyCoupon = (code: string) => {
@@ -79,7 +77,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    setPoints((prev) => prev - reward.points);
+    deductPoints(reward.points);
     setToastMsg(`🎉 Successfully redeemed: ${reward.title}!`);
     setTimeout(() => setToastMsg(null), 3500);
   };
@@ -130,7 +128,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                   style={styles.addCashBtn}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    setBalance((prev) => prev + 100);
+                    addBalance(100);
                     setToastMsg('₹100 added to EasyWallet!');
                     setTimeout(() => setToastMsg(null), 3000);
                   }}

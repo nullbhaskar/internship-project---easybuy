@@ -24,6 +24,7 @@ import * as Haptics from 'expo-haptics';
 import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { ExperimentalNavigation } from '../components/navigation/ExperimentalNavigation';
+import { FloatLoop, StaggerIn } from '../components/ui/motion';
 
 const { width, height } = Dimensions.get('window');
 
@@ -114,7 +115,9 @@ export default function OrdersScreen() {
     if (!isAuthenticated || isGuest) return;
     setLoading(true);
     const activeUser = user || auth.currentUser;
-    const activeEmail = activeUser?.email;
+    const activeEmail = (activeUser as any)?.email;
+    const activeUid = (activeUser as any)?.uid;
+    const isAdmin = activeEmail === 'admineasybuy@gmail.com';
     const collRef = collection(db, 'orders');
 
     const unsubscribe = onSnapshot(
@@ -130,10 +133,12 @@ export default function OrdersScreen() {
           if (data.status === 'Shipped') stepIndex = 3;
           if (data.status === 'Delivered') stepIndex = 4;
 
-          const matchUser = activeEmail && data.userEmail && data.userEmail.toLowerCase() === activeEmail.toLowerCase();
-          const isAdmin = activeEmail === 'admineasybuy@gmail.com';
+          // Match by email OR by userId — admin sees all
+          const matchByEmail = activeEmail && data.userEmail &&
+            data.userEmail.toLowerCase() === activeEmail.toLowerCase();
+          const matchByUid = activeUid && data.userId && data.userId === activeUid;
 
-          if (matchUser || isAdmin || !data.userEmail) {
+          if (isAdmin || matchByEmail || matchByUid) {
             fetched.push({
               id: docSnap.id,
               orderId: data.orderId || `#EB-${docSnap.id.substring(0, 6).toUpperCase()}`,
@@ -162,7 +167,7 @@ export default function OrdersScreen() {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [isAuthenticated, isGuest, user?.uid]);
 
   // Dynamic Metrics
   const totalCount = orders.length;
@@ -443,7 +448,9 @@ export default function OrdersScreen() {
         {/* ══ ORDERS LIST ══════════════════════════════════ */}
         {filteredOrders.length === 0 ? (
           <View style={[S.emptyOrdersCard, isDark && S.emptyOrdersCardDark]}>
-            <Text style={{ fontSize: 44, marginBottom: 8 }}>🛍️</Text>
+            <FloatLoop distance={8}>
+              <Text style={{ fontSize: 44, marginBottom: 8 }}>🛍️</Text>
+            </FloatLoop>
             <Text style={[S.emptyOrdersTitle, isDark && S.textLight]}>
               No Orders Placed Yet
             </Text>
@@ -462,7 +469,7 @@ export default function OrdersScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          filteredOrders.map((order) => {
+          filteredOrders.map((order, orderIdx) => {
             const isProcessing = order.status === 'Processing' || order.status === 'Order Placed' || order.status === 'Confirmed' || order.status === 'Packed';
             const isShipped = order.status === 'Shipped' || order.status === 'Out for Delivery';
             const isDelivered = order.status === 'Delivered';
@@ -482,8 +489,8 @@ export default function OrdersScreen() {
             }
 
             return (
+              <StaggerIn key={order.id} index={orderIdx % 6} delayStep={80} distance={28}>
               <View
-                key={order.id}
                 style={[S.orderCard, isDark ? S.orderCardDark : S.orderCardLight]}
               >
                 {/* Header Info */}
@@ -641,6 +648,7 @@ export default function OrdersScreen() {
                   </View>
                 )}
               </View>
+              </StaggerIn>
             );
           })
         )}

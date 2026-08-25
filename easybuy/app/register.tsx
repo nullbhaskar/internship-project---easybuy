@@ -27,10 +27,9 @@ import { LanguageSelector } from '../components/common/LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db } from '../services/firebase';
-import { executePostLoginFlow } from '../services/locationPermissionService';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../services/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 const { width } = Dimensions.get('window');
 const NORMAL_HERO_HEIGHT = width * 0.44;
@@ -39,19 +38,23 @@ const APPLE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 export default function RegisterScreen() {
   const router = useRouter();
   const { t } = useLanguage();
-  const { setGuestMode, setAuthenticatedUser } = useAuth();
+  const { setGuestMode } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
-  const [focusedField, setFocusedField] = useState<'name' | 'email' | 'password' | null>(null);
+  const [focusedField, setFocusedField] = useState<'name' | 'email' | 'password' | 'confirmPassword' | 'phone' | null>(null);
   const [blurVal, setBlurVal] = useState(0);
 
   const [nameErrorKey, setNameErrorKey] = useState('');
   const [emailErrorKey, setEmailErrorKey] = useState('');
   const [passwordErrorKey, setPasswordErrorKey] = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [customError, setCustomError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -137,6 +140,8 @@ export default function RegisterScreen() {
   const validate = () => {
     let isValid = true;
     setCustomError('');
+    setConfirmPasswordError('');
+    setPhoneError('');
 
     const cleanName = name.trim();
     if (!cleanName) {
@@ -150,7 +155,7 @@ export default function RegisterScreen() {
     if (!cleanEmail) {
       setEmailErrorKey('emailRequired');
       isValid = false;
-    } else if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       setEmailErrorKey('validEmailRequired');
       isValid = false;
     } else {
@@ -167,73 +172,72 @@ export default function RegisterScreen() {
       setPasswordErrorKey('');
     }
 
+    if (!confirmPassword) {
+      setConfirmPasswordError('Please confirm your password.');
+      isValid = false;
+    } else if (confirmPassword !== password) {
+      setConfirmPasswordError('Passwords do not match.');
+      isValid = false;
+    }
+
+    // Phone is optional — validate only if non-empty
+    const cleanPhone = phone.trim();
+    if (cleanPhone && !/^[6-9]\d{9}$/.test(cleanPhone)) {
+      setPhoneError('Enter a valid 10-digit Indian mobile number.');
+      isValid = false;
+    }
+
     return isValid;
   };
 
   const handleRegister = async () => {
     if (isSubmitting) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    if (validate()) {
-      setIsSubmitting(true);
-      setCustomError('');
-      try {
-        const cleanEmail = email.trim().toLowerCase();
-
-        // 1. Check for duplicate email in Firestore users collection
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('email', '==', cleanEmail));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          setCustomError('This email address is already registered in Firestore. Please log in.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-          setIsSubmitting(false);
-          return;
-        }
-
-        // 2. Create user with Firebase Auth
-        let uid = 'user_' + Date.now();
-        try {
-          const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-          uid = userCredential.user.uid;
-        } catch (authErr: any) {
-          console.log('Firebase auth register notice:', authErr);
-        }
-
-        // 3. Save user profile to Firestore 'users' collection (fullName, email, password, createdAt)
-        const profilePayload = {
-          uid: uid,
-          fullName: name.trim(),
-          email: cleanEmail,
-          password: password,
-          createdAt: new Date().toISOString(),
-        };
-        await setDoc(doc(db, 'users', uid), profilePayload);
-
-        await setAuthenticatedUser({
-          uid: uid,
-          email: cleanEmail,
-          fullName: name.trim(),
-        });
-
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        executePostLoginFlow().catch((e) => console.log('Post login flow error:', e));
-        router.replace('/home' as any);
-      } catch (error: any) {
-        console.warn('Firebase Registration Error:', error.code, error.message);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-        if (error.code === 'auth/email-already-in-use') {
-          setCustomError('This email is already registered. Try logging in!');
-        } else if (error.code === 'auth/invalid-email') {
-          setEmailErrorKey('validEmailRequired');
-        } else {
-          setCustomError(error.message || 'Registration failed.');
-        }
-      } finally {
-        setIsSubmitting(false);
-      }
-    } else {
+    if (!validate()) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      return;
+    }
+
+    setIsSubmitting(true);
+    setCustomError('');
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+
+      // Check duplicate email in Firestore
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', cleanEmail));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        setCustomError('This email is already registered. Try logging in!');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Generate 6-digit OTP
+      const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Send OTP via EmailJS
+      const { sendOtpEmail } = require('../services/emailService');
+      await sendOtpEmail(cleanEmail, name.trim(), generatedOtp);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+      // Pass credentials AND the expected OTP to OTP screen via params
+      router.push({
+        pathname: '/otp-verify',
+        params: { 
+          email: cleanEmail, 
+          name: name.trim(), 
+          password,
+          expectedOtp: generatedOtp 
+        },
+      } as any);
+    } catch (error: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      setCustomError(error?.message || 'Could not send verification code. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -455,6 +459,32 @@ export default function RegisterScreen() {
                 </View>
               </View>
             )}
+
+            {/* Confirm Password */}
+            <AuthInput
+              label="Confirm Password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Re-enter your password"
+              secureTextEntry
+              error={confirmPasswordError}
+              accessibilityLabel="Confirm password input"
+              containerStyle={{ marginBottom: 10, marginTop: 4 }}
+              onFocusStateChange={(focused) => setFocusedField(focused ? 'confirmPassword' : null)}
+            />
+
+            {/* Phone (optional) */}
+            <AuthInput
+              label="Mobile Number (Optional)"
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="10-digit mobile number"
+              keyboardType="phone-pad"
+              error={phoneError}
+              accessibilityLabel="Mobile number input"
+              containerStyle={{ marginBottom: 10 }}
+              onFocusStateChange={(focused) => setFocusedField(focused ? 'phone' : null)}
+            />
 
             {customError ? (
               <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600', textAlign: 'center', marginBottom: 8 }}>
