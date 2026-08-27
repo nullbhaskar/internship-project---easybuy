@@ -54,6 +54,8 @@ import { QuickBuySection } from '../components/home/QuickBuySection';
 import { AISmartFeed } from '../components/ai/AISmartFeed';
 import { VoiceBuyModal } from '../components/ai/VoiceBuyModal';
 import { AIAssistantChatModal } from '../components/ai/AIAssistantChatModal';
+import { GeminiVoiceMode } from '../components/ai/GeminiVoiceMode';
+import { ExpandableAIFab } from '../components/ai/ExpandableAIFab';
 import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { SpatialDrawerWrapper, SpatialDrawerRef } from '../components/navigation/SpatialDrawerWrapper';
 import { WalletModal } from '../components/wallet/WalletModal';
@@ -1758,6 +1760,7 @@ export default function HomeScreen() {
   const [heroBgManualIndex, setHeroBgManualIndex] = useState<number | null>(null);
   const [gamificationModal, setGamificationModal] = useState<string | null>(null);
   const [aiChatVisible, setAiChatVisible] = useState(false);
+  const [geminiVoiceVisible, setGeminiVoiceVisible] = useState(false);
 
   // Auto-rotates background photo every 48 hours (2 days)
   const autoRotationIndex = useMemo(() => {
@@ -3131,23 +3134,6 @@ export default function HomeScreen() {
                           </Text>
                         </TouchableOpacity>
 
-                        {/* 🎙️ Voice Recipe & Cart AI Mic Button */}
-                        <TouchableOpacity
-                          style={{
-                            paddingHorizontal: 8,
-                            paddingVertical: 6,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                          }}
-                          onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                            setVoiceBuyVisible(true);
-                          }}
-                          activeOpacity={0.75}
-                        >
-                          <Ionicons name="mic" size={20} color="#FFFFFF" />
-                        </TouchableOpacity>
-
                         <View style={styles.translucentSearchDivider} />
                         <TouchableOpacity
                           style={styles.iosSearchFilterBtn}
@@ -3929,43 +3915,21 @@ export default function HomeScreen() {
 
         
 
-        {/* ─── FLOATING AI ASSISTANT CONCIERGE BUTTON (FAB) ─── */}
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            bottom: 95,
-            right: 18,
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: '#10B981',
-            paddingVertical: 10,
-            paddingHorizontal: 16,
-            borderRadius: 24,
-            gap: 8,
-            shadowColor: '#10B981',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.45,
-            shadowRadius: 10,
-            elevation: 8,
-            zIndex: 999,
-          }}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-            setAiChatVisible(true);
-          }}
-          activeOpacity={0.88}
-        >
-          <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
-          <Text style={{ fontSize: 13, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 }}>
-            Ask AI
-          </Text>
-        </TouchableOpacity>
+        <ExpandableAIFab 
+          onOpenVoice={() => setGeminiVoiceVisible(true)} 
+          onOpenChat={() => setAiChatVisible(true)} 
+        />
 
         {/* ─── MODALS ─── */}
         <AIAssistantChatModal
           visible={aiChatVisible}
           onClose={() => setAiChatVisible(false)}
           isDarkMode={isDarkMode}
+        />
+        <GeminiVoiceMode
+          visible={geminiVoiceVisible}
+          onClose={() => setGeminiVoiceVisible(false)}
+          stateName={selectedStateName}
         />
         <SearchModal visible={searchModalVisible} onClose={handleCloseSearchModal} initialMode={searchMode} isDarkMode={isDarkMode} />
         <VoiceBuyModal

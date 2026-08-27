@@ -13,6 +13,7 @@ export interface AdminDashboardProps {
   totalRevenue: number;
   onManageProducts: () => void;
   orders?: AdminOrder[];
+  weeklyRevenueData?: number[];
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({

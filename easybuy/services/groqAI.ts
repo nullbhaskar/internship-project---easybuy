@@ -1,12 +1,17 @@
 // ─── GROQ AI SERVICE ─────────────────────────────────────────────────────────
-// Catalog-grounded, state-aware EasyBuy AI — NEVER hallucinates products.
+// Firebase-grounded EasyBuy AI — product availability ALWAYS comes from Firestore.
+// The AI NEVER uses its own knowledge to claim a product exists.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { generateFullIndianCatalog, ProductItem } from '../constants/catalogGenerator';
 import { QB_CATEGORIES } from '../constants/quickbuyData';
-
+import {
+  checkProductAvailability,
+  buildAvailabilityContext,
+  getCurrentLocation,
+} from './firebaseCatalogSearch';
 function getBaseApiUrl(): string {
   if (Platform.OS === 'web') {
     return '';
@@ -723,9 +728,8 @@ export async function chatWithEasyBuyAI(
   isPureVoiceMode: boolean = false
 ): Promise<AIChatResponse> {
   const lastUserMsg = [...conversationHistory].reverse().find((m) => m.role === 'user')?.content || '';
-  const q = lastUserMsg.toLowerCase();
 
-  // Load user taught facts from permanent storage
+  // ── Load user taught facts ──
   let userTaughtFacts = '';
   try {
     const savedFacts = await AsyncStorage.getItem('learned_facts');
@@ -736,133 +740,151 @@ export async function chatWithEasyBuyAI(
     console.log('Failed to load facts', e);
   }
 
-  // Check for unavailable brand first
-  const unavailableBrand = detectUnavailableBrand(lastUserMsg);
+  // ── Step 1: Get actual user location from AsyncStorage (set by location service) ──
+  const locationData = await getCurrentLocation();
+  const stateId = locationData?.stateId || null;
+  const resolvedStateName = locationData?.stateName || stateName || null;
 
-  // Search catalog for the user's last message
-  const categoryHint = inferCategoryFromQuery(q);
-  let catalogResults = searchCatalog(lastUserMsg, stateName, categoryHint, 4);
+  console.log('[EasyBuy AI] USER QUERY:', lastUserMsg);
+  console.log('[EasyBuy AI] CURRENT LOCATION:', resolvedStateName, '/', stateId);
 
-  // MEMORY RECALL: If the user says "2nd one", local search fails. So we look at the conversation history
-  // to find the IDs of the products the AI recently showed, and add them to the context!
-  const recentShownIds = [...conversationHistory]
-    .map(m => m.content || '')
-    .join(' ')
-    .match(/ID: ([\w-]+)/g)
-    ?.map(m => m.replace('ID: ', '')) || [];
-    
-  if (recentShownIds.length > 0) {
-    const catalog = getCatalog();
-    const memoryProducts = recentShownIds.map(id => catalog.find(p => p.id === id)).filter(Boolean) as ProductItem[];
-    // Add memory products to results if not already there
-    for (const mp of memoryProducts) {
-      if (!catalogResults.find(r => r.id === mp.id)) {
-        catalogResults.push(mp);
-      }
-    }
-  }
+  // ── Step 2: Check Firebase for real product availability (BEFORE calling Groq) ──
+  // This is the ONLY source of truth. Groq only generates the natural-language reply.
+  const availabilityResult = await checkProductAvailability(
+    lastUserMsg,
+    stateId,
+    resolvedStateName
+  );
 
-  // Detect if this is a shopping/product request or contextual selection
-  const isShoppingRequest = /want|chahiye|dikhao|buy|order|gift|recipe|outfit|gym|protein|study|snack|grocery|mobile|laptop|shoe|watch|bag|bat|ball|cricket|football|clothes|hoodie|jeans|serum|face wash|recommend|1st|2nd|3rd|4th|first|second|third|fourth|last/i.test(lastUserMsg);
+  console.log('[EasyBuy AI] FIREBASE RESULT STATUS:', availabilityResult.status);
 
-  const locationHint = stateName
-    ? `User is in ${stateName}, India. Tailor cultural context to ${stateName}.`
-    : 'User is in India.';
+  // ── Step 3: Build the availability context for Groq ──
+  const availabilityContext = buildAvailabilityContext(availabilityResult);
 
-  const catalogContext = (!isPureVoiceMode && catalogResults.length > 0)
-    ? 'AVAILABLE IN EASYBUY CATALOG:\n' + catalogResults.map((p, i) =>
-        `${i + 1}. "${p.name}" | ₹${p.priceNumber} | ${p.categoryName} | ID: ${p.id}`
-      ).join('\n')
-    : ((!isPureVoiceMode && isShoppingRequest) ? 'NO MATCHING PRODUCTS FOUND IN CATALOG.' : '');
+  // ── Step 4: Build system prompts with STRICT Firebase-grounding rules ──
+  const FIREBASE_GUARDRAILS =
+    '\n\n🔴 ABSOLUTE FIREBASE GROUNDING RULES (HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE):\n' +
+    '1. The FIREBASE AVAILABILITY RESULT in the user message is the ONLY source of truth for product availability.\n' +
+    '2. If FIREBASE AVAILABILITY RESULT says NOT FOUND: You MUST tell the user that product is not in the EasyBuy catalog. Do NOT say it exists. Do NOT suggest it might be available.\n' +
+    '3. If FIREBASE AVAILABILITY RESULT says NOT AVAILABLE IN USER\'S STATE: Tell user it is not available in their state. You MAY mention other states if listed.\n' +
+    '4. If FIREBASE AVAILABILITY RESULT says OUT OF STOCK: Tell user it is out of stock.\n' +
+    '5. If FIREBASE AVAILABILITY RESULT says NOT QUICK BUY: Tell user the product exists but QuickBuy is not available for it.\n' +
+    '6. If FIREBASE AVAILABILITY RESULT says ERROR: Tell user catalog is temporarily unavailable. Do NOT guess availability.\n' +
+    '7. If FIREBASE AVAILABILITY RESULT says LOCATION UNKNOWN: Ask user to enable location. Do NOT assume any state.\n' +
+    '8. If FIREBASE AVAILABILITY RESULT says AVAILABLE: Use the verified product list provided. Set hasProducts: true.\n' +
+    '9. NEVER use your general world knowledge to decide if EasyBuy has a product. Firebase decides. Period.\n' +
+    '10. NEVER invent product names, prices, categories, brands, stock status, or delivery estimates.\n';
+
+  const APP_KNOWLEDGE =
+    '\n\n🧠 EASYBUY SYSTEM & FIREBASE ARCHITECTURE KNOWLEDGE:\n' +
+    'You possess full knowledge of how EasyBuy is built. If the user asks about your backend, Firebase, or app structure, you can explain:\n' +
+    '- Tech Stack: React Native (Expo) frontend, Firebase/Firestore backend, Groq API for LLM processing, and OpenAI TTS for voice.\n' +
+    '- Firebase Structure: Data is stored in collections like `products` (contains documents with name, price, stateId, searchKeywords arrays, and stock), `states` (contains state-specific metadata and featured categories), and user data collections.\n' +
+    '- Calendar & Events: EasyBuy supports future tracking of product launches, flash sales, and calendar events seamlessly integrated into the shopping experience.\n' +
+    '- Search Mechanism: Your search does not rely on direct exact-match Firestore queries alone; it uses a hybrid RAG (Retrieval-Augmented Generation) pipeline where the app first runs a local catalog verification, resolves keywords and tags, and then feeds you the exact, truthful context.\n';
 
   let systemPrompt = '';
-  
+
   if (isPureVoiceMode) {
-    systemPrompt = 
-      'You are "EasyBuy Assistant" — a highly intelligent, polite, and helpful voice guide (like Jarvis) for the EasyBuy app. ' +
-      'YOU ARE IN VOICE ASSISTANT MODE. ' +
-      EASYBUY_APP_KNOWLEDGE + userTaughtFacts + '\n\n' +
-      'CRITICAL RULES:\n' +
-      '1. NEVER suggest specific products or add things to the cart. If the user asks to buy or search for a product, tell them: "Yes, we have that! Please use the Ask AI chat button below to add it to your cart."\n' +
-      '2. APP SUPPORT: If the user is confused about a feature, explain how to use the EasyBuy app clearly and politely.\n' +
-      '3. EXTREMELY SHORT RESPONSES: Keep your reply to 1 or 2 short sentences max so it sounds natural when spoken out loud.\n' +
-      '4. Tone: Helpful, professional, yet warm (like Jarvis). Do not use markdown.\n' +
-      '5. LEARNING: If the user tells you a fact about themselves, or tells you to remember something, you MUST include a "learnedFact" field in your JSON containing the core fact (e.g. "User likes blue").\n\n' +
-      'FORMAT:\n' +
-      'Reply ONLY in pure JSON (NO MARKDOWN). Do NOT wrap in ```json.\n' +
-      '{ "replyText": "your super short spoken response", "hasProducts": false, "learnedFact": "optional fact to remember" }';
+    systemPrompt =
+      'You are "EasyBuy Assistant" — a smart, warm, and friendly voice assistant for EasyBuy, built for Indian users. ' +
+      'YOU ARE IN VOICE ASSISTANT MODE — your reply will be READ ALOUD by a text-to-speech engine.\n' +
+      'DEVELOPMENT TEAM: EasyBuy was developed by Bhaskar under the supervision of Abhishek Kumar Singh.\n' +
+      userTaughtFacts +
+      FIREBASE_GUARDRAILS +
+      '\nLANGUAGE RULES:\n' +
+      '- YOU MUST ALWAYS REPLY IN ENGLISH ONLY. The TTS engine cannot pronounce Hindi correctly.\n' +
+      '- Even if the user speaks Hindi or Hinglish, always reply in clear simple English.\n\n' +
+      'VOICE RESPONSE RULES:\n' +
+      '1. SHORT: Maximum 2 short sentences.\n' +
+      '2. ENGLISH ONLY: Always reply in English.\n' +
+      '3. NO SYMBOLS: Never use *, #, -, bullet points, emojis, or markdown.\n' +
+      '4. WARM TONE: Sound like a friendly, helpful person.\n' +
+      '5. MEMORY: If user shares a personal fact, include it in the learnedFact field.\n\n' +
+      'FORMAT: Reply ONLY in pure JSON. No markdown.\n' +
+      '{ "replyText": "your English only spoken response", "hasProducts": false, "learnedFact": "optional" }';
   } else {
     systemPrompt =
-      'You are "EasyBuy AI" — an insanely advanced, witty, and highly empathetic Shopping Assistant. You act like a highly intelligent, empathetic assistant for Indian quick-commerce.\n' +
-      EASYBUY_APP_KNOWLEDGE + userTaughtFacts + '\n\n' +
-      '🔥 CORE PERSONA:\n' +
-      '1. High EQ & Conversational Brilliance: You are not a robot. You chat casually, offer emotional support, tell jokes, and vibe with the user. If they say they are sad, offer comfort and chocolate. If they are stressed, offer energy drinks and calm advice.\n' +
-      '2. Multilingual: If the user types in Hindi, Hinglish, or English, reply naturally matching their exact language and slang.\n' +
-      '3. State-Aware (Hyper-Personalized): Constantly reference their location to build trust (e.g., "Delhi pollution is bad today", "Since you are in Bihar...").\n' +
-      '4. Tech Flexing (For the Presentation): Subtly mention how your "10-Minute Firebase Real-time Backend" or "Spatial Navigation Engine" ensures they get what they want instantly.\n' +
-      '5. LEARNING: If the user tells you a fact about themselves, or tells you to remember something, you MUST include a "learnedFact" field in your JSON containing the core fact.\n\n' +
-      '🚫 CATALOG RULES:\n' +
-      '1. For shopping, ONLY suggest items from the catalog provided below. NEVER invent products/prices.\n' +
-      '2. If they ask for something missing (like a Rolex or specific brand), jokingly say we don\'t have it in our 10-minute inventory, but suggest the best alternative from the catalog.\n' +
-      '3. If a product IS listed in the "AVAILABLE IN EASYBUY CATALOG" section, you MUST output it in the JSON bundle and set "hasProducts": true. NEVER say it is out of stock if it is in the list.\n' +
-      '4. If the user refers to "the 1st one" or "that shirt", check the previous messages to see what you showed them, find it in the CATALOG section, and output it.\n\n' +
-      'FORMAT:\n' +
-      'Reply ONLY in pure JSON (NO MARKDOWN). Do NOT wrap in ```json.\n' +
-      'If shopping: { "replyText": "witty empathetic reply", "hasProducts": true, "learnedFact": "optional fact", "bundle": { "title": "catchy title", "emoji": "🔥", "tagline": "...", "items": [ { "id": "real ID", "name": "real name", "price": real number, "quantity": "1", "category": "...", "reason": "brilliant reason" } ], "totalPrice": number } }\n' +
-      'If just chatting: { "replyText": "your witty response", "hasProducts": false, "learnedFact": "optional fact" }';
+      'You are "EasyBuy AI" — an advanced, witty, and highly empathetic Shopping Assistant for Indian e-commerce.\n' +
+      'DEVELOPMENT TEAM: EasyBuy was developed by Bhaskar under the supervision of Abhishek Kumar Singh.\n' +
+      userTaughtFacts +
+      APP_KNOWLEDGE +
+      FIREBASE_GUARDRAILS +
+      '\n🔥 PERSONA:\n' +
+      '1. High EQ & Conversational Brilliance: Chat casually, offer emotional support, and vibe with the user.\n' +
+      '2. Multilingual: If the user types in Hindi, Hinglish, or English, reply naturally matching their language.\n' +
+      '3. State-Aware: Reference their verified location to build trust.\n' +
+      '4. LEARNING: If the user tells you a fact about themselves, include a "learnedFact" field in your JSON.\n\n' +
+      'FORMAT: Reply ONLY in pure JSON (NO MARKDOWN, NO ```json).\n' +
+      'If shopping (hasProducts true): { "replyText": "reply", "hasProducts": true, "learnedFact": "optional", "bundle": { "title": "title", "emoji": "🔥", "tagline": "...", "items": [ { "id": "real ID from Firebase result", "name": "exact name", "price": number, "quantity": "1", "category": "cat", "reason": "reason" } ], "totalPrice": number } }\n' +
+      'If not available / just chatting: { "replyText": "your response", "hasProducts": false, "learnedFact": "optional" }';
   }
 
-  const userPrompt =
-    locationHint + '\n' +
-    (unavailableBrand ? `NOTE: User asked for "${unavailableBrand}" which is NOT in catalog. Tell them kindly.\n` : '') +
-    (catalogContext ? '\n' + catalogContext + '\n' : '') +
-    '\nUser message: "' + lastUserMsg + '"';
+  // ── Step 5: Build the user prompt — Firebase result is the grounding context ──
+  const locationHint = resolvedStateName
+    ? `User location: ${resolvedStateName}${stateId ? ` (${stateId})` : ''}, India.`
+    : 'User location: Unknown.';
 
+  const userPrompt =
+    locationHint + '\n\n' +
+    availabilityContext + '\n\n' +
+    'User message: "' + lastUserMsg + '"';
+
+  // ── Step 6: Call Groq with the grounded context ──
   try {
     const groqMessages: AIChatMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...conversationHistory.slice(-5),
+      ...conversationHistory.slice(-4), // keep recent context for memory
     ];
-    // Override the last message with our enriched prompt
+    // Override the last user message with the Firebase-enriched prompt
     groqMessages[groqMessages.length - 1] = { role: 'user', content: userPrompt };
 
-    const reply = await callGroq(groqMessages, 1200);
+    const reply = await callGroq(groqMessages, 600);
     const parsed = cleanAndParseJSON(reply);
 
     if (parsed && parsed.replyText) {
       let bundle = parsed.bundle;
 
-      // Anchor items to real catalog
-      if (bundle && Array.isArray(bundle.items) && catalogResults.length > 0) {
+      // ── Anchor AI bundle items to REAL Firebase products ──
+      // The AI picks which products from the Firebase result to show — we enforce that
+      // the data (id, name, price) comes from verified Firebase results, not AI imagination.
+      const firebaseProducts = [
+        ...(availabilityResult.products || []),
+        ...(availabilityResult.categoryProducts || []),
+      ];
+
+      if (bundle && Array.isArray(bundle.items) && firebaseProducts.length > 0) {
         bundle.items = bundle.items.map((aiItem: any) => {
-          const real = catalogResults.find((r) =>
+          // Try to match by ID first, then by name prefix
+          const real = firebaseProducts.find((r) =>
             r.id === aiItem.id ||
-            (r.name || r.title).toLowerCase().includes((aiItem.name || '').toLowerCase().slice(0, 10))
-          ) || catalogResults[Math.floor(Math.random() * catalogResults.length)];
+            (r.name || r.title || '').toLowerCase().includes((aiItem.name || '').toLowerCase().slice(0, 10))
+          ) || firebaseProducts[0];
           return {
             id: real.id,
             name: real.name || real.title,
-            price: real.priceNumber || Number(real.price) || 199,
+            price: real.priceNumber || Number(real.price) || 0,
             quantity: aiItem.quantity || '1 pc',
             category: real.categoryId,
-            reason: aiItem.reason || `Available in ${real.categoryName}`,
+            reason: aiItem.reason || `Verified in EasyBuy ${real.categoryName}`,
             image: real.thumbnail || real.image,
           };
         });
         bundle.totalPrice = bundle.items.reduce((s: number, it: any) => s + Number(it.price), 0);
-      } else if (catalogResults.length === 0 && isShoppingRequest) {
+      } else if (availabilityResult.status !== 'available') {
+        // Firebase says not available — force clear any bundle the AI tried to create
         bundle = undefined;
         parsed.hasProducts = false;
       }
 
-      // If AI extracted a learned fact, save it to permanent memory!
+      // Save learned facts to AsyncStorage
       if (parsed.learnedFact) {
         try {
           const oldFacts = await AsyncStorage.getItem('learned_facts') || '';
           const newFacts = oldFacts ? oldFacts + '\n- ' + parsed.learnedFact : '- ' + parsed.learnedFact;
           await AsyncStorage.setItem('learned_facts', newFacts);
-          console.log('AI Learned new fact:', parsed.learnedFact);
-        } catch(e) {}
+          console.log('[EasyBuy AI] Learned new fact:', parsed.learnedFact);
+        } catch (e) {}
       }
 
       return {
@@ -877,50 +899,58 @@ export async function chatWithEasyBuyAI(
     console.log('[GroqAI] Chat assistant error:', e);
   }
 
-  // Fallback
-  if (catalogResults.length > 0 && isShoppingRequest) {
-    const fallback = buildCatalogFallback(lastUserMsg, catalogResults, stateName);
-    return {
-      replyText: fallback.chatReply,
-      hasProducts: true,
-      bundle: {
-        title: fallback.title,
-        emoji: fallback.emoji,
-        tagline: fallback.tagline,
-        items: fallback.items,
-        totalPrice: fallback.totalPrice,
-      },
-    };
+  // ── Fallback: If Groq call fails, generate a safe response from Firebase result directly ──
+  if (availabilityResult.status === 'available') {
+    const firebaseProducts = [
+      ...(availabilityResult.products || []),
+      ...(availabilityResult.categoryProducts || []),
+    ];
+    if (firebaseProducts.length > 0) {
+      const fallback = buildCatalogFallback(lastUserMsg, firebaseProducts.map(p => ({
+        ...p,
+        title: p.name || p.title || '',
+        name: p.name || p.title || '',
+        priceNumber: p.priceNumber,
+        categoryId: p.categoryId,
+        categoryName: p.categoryName,
+      } as any)), resolvedStateName || undefined);
+      return {
+        replyText: fallback.chatReply,
+        hasProducts: true,
+        bundle: {
+          title: fallback.title,
+          emoji: fallback.emoji,
+          tagline: fallback.tagline,
+          items: fallback.items,
+          totalPrice: fallback.totalPrice,
+        },
+      };
+    }
   }
 
-  if (unavailableBrand) {
-    const res = buildUnavailableResponse(lastUserMsg, stateName, unavailableBrand);
-    return {
-      replyText: res.chatReply || '',
-      hasProducts: false,
-      bundle: {
-        title: res.title,
-        emoji: res.emoji,
-        tagline: res.tagline,
-        items: res.items,
-        totalPrice: res.totalPrice,
-      },
-    };
-  }
-  
-  // Smart Fallbacks if the API Key is invalid or rate-limited
-  // These are designed to pivot the user back to shopping without ever mentioning an error or "offline mode"
-  const casualResponses = [
-    "I could chat all day, but my main focus right now is getting you the best 10-minute deliveries! What are you craving? Try searching for 'coffee' or 'snacks'!",
-    "I'm doing great, thanks for asking! But honestly, I'm just excited to show you our catalog. Why don't you try asking me for a 'Late night snack' or a 'Birthday gift'?",
-    "Hey there! Let's save the small talk for later. I can deliver hot pakodas or cold brew to your door in 10 minutes. Want to see some options?",
-    "I'm always here to help! If you ever need a quick recipe, a last-minute gift, or just some groceries, just type it here and I'll find it instantly."
-  ];
-
-  const randomResponse = casualResponses[Math.floor(Math.random() * casualResponses.length)];
+  // Firebase says not available — return a clean, honest response
+  const unavailableReply = (() => {
+    switch (availabilityResult.status) {
+      case 'not_found':
+        return `Sorry, I couldn't find "${lastUserMsg.slice(0, 40)}" in the EasyBuy catalog right now. Feel free to explore our categories!`;
+      case 'not_available_in_state':
+        return `Sorry, that product isn't currently available in ${resolvedStateName || 'your area'}.` +
+          (availabilityResult.foundInOtherStates?.length
+            ? ` It is listed in ${availabilityResult.foundInOtherStates.slice(0, 2).join(' and ')}.`
+            : '');
+      case 'out_of_stock':
+        return `That product is currently out of stock. Please check back soon!`;
+      case 'firebase_error':
+        return `I'm having trouble checking the EasyBuy catalog right now. Please try again in a moment.`;
+      case 'location_unknown':
+        return `I need your location to check product availability for your area. Please enable location access in settings.`;
+      default:
+        return `I'm here to help! Try asking me about groceries, electronics, fashion, fitness gear, and more.`;
+    }
+  })();
 
   return {
-    replyText: randomResponse,
+    replyText: unavailableReply,
     hasProducts: false,
   };
 }

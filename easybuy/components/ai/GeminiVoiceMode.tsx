@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import { CSSOrbWebView } from './CSSOrbWebView';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { chatWithEasyBuyAI, AIChatMessage } from '../../services/groqAI';
@@ -33,6 +34,7 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
   const [status, setStatus] = useState<'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING'>('IDLE');
   const [inputText, setInputText] = useState('');
   const [aiSpeechText, setAiSpeechText] = useState('');
+  const [volume, setVolume] = useState(0);
   
   // VOICE PICKER STATE
   const [showVoicePicker, setShowVoicePicker] = useState(false);
@@ -76,6 +78,18 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
     Animated.timing(textOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
     speakText('Testing this voice profile. Do you like how I sound?', voiceId);
   };
+
+  useEffect(() => {
+    let interval: any;
+    if (status === 'LISTENING' || status === 'SPEAKING') {
+      interval = setInterval(() => {
+        setVolume(Math.random() * 0.5 + 0.1);
+      }, 250);
+    } else {
+      setVolume(0);
+    }
+    return () => clearInterval(interval);
+  }, [status]);
 
   useEffect(() => {
     if (visible && !showVoicePicker) {
@@ -207,110 +221,181 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
 
   return (
     <Modal visible={visible} animationType="fade" transparent={true}>
-      <BlurView intensity={90} tint="dark" style={styles.absoluteFill}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-          
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.closeButton} onPress={stopAndClose}>
-              <Ionicons name="chevron-down" size={32} color="#FFFFFF" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Voice Assistant</Text>
-            
-            {/* Secret Voice Picker Button */}
-            <TouchableOpacity style={styles.voicePickerBtn} onPress={() => setShowVoicePicker(!showVoicePicker)}>
-              <Ionicons name="options" size={24} color="#FFFFFF" />
+      
+<BlurView intensity={90} tint="dark" style={styles.absoluteFill}>
+  <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
+    <View style={styles.modalWindow}>
+      
+      {/* Header */}
+      
+      <View style={styles.header}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity style={styles.iconBtnDark} onPress={onClose}>
+            <Ionicons name="chevron-down" size={20} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>EasyBuy AI</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.iconBtnDark} onPress={() => setShowVoicePicker(!showVoicePicker)}>
+            <Ionicons name="settings-outline" size={18} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtnCyan} onPress={onClose}>
+            <Ionicons name="person-outline" size={18} color="#000" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Voice Picker Overlay */}
+      {showVoicePicker ? (
+        <View style={styles.voicePickerContainer}>
+          <Text style={styles.voicePickerTitle}>Select an OS Voice</Text>
+          <ScrollView style={styles.voiceList}>
+            {availableVoices.map((v, i) => (
+              <TouchableOpacity 
+                key={i} 
+                style={[styles.voiceItem, activeVoiceId === v.identifier && styles.voiceItemActive]}
+                onPress={() => testVoice(v.identifier)}
+              >
+                <Text style={styles.voiceItemText}>{v.name || v.identifier}</Text>
+              </TouchableOpacity>
+            ))}
+            {availableVoices.length === 0 && <Text style={{color:'white'}}>No voices found on this OS</Text>}
+          </ScrollView>
+        </View>
+      ) : (
+        <>
+          {/* Orb Container */}
+          <View style={styles.visualizerContainer}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => { if(status==='LISTENING'){voiceRecognition.stop();} else if(status==='IDLE'){startListening();} }}
+              style={[styles.orbWrapper, { width: 300, height: 300, alignItems: 'center', justifyContent: 'center' }]}
+            >
+              <CSSOrbWebView status={status} inputTextLength={inputText.length} volume={volume} />
             </TouchableOpacity>
           </View>
 
-          {showVoicePicker ? (
-            <View style={styles.voicePickerContainer}>
-              <Text style={styles.voicePickerTitle}>Select an OS Voice</Text>
-              <ScrollView style={styles.voiceList}>
-                {availableVoices.map((v, i) => (
-                  <TouchableOpacity 
-                    key={i} 
-                    style={[styles.voiceItem, activeVoiceId === v.identifier && styles.voiceItemActive]}
-                    onPress={() => testVoice(v.identifier)}
-                  >
-                    <Text style={styles.voiceItemText}>{v.name || v.identifier}</Text>
-                  </TouchableOpacity>
-                ))}
-                {availableVoices.length === 0 && <Text style={{color:'white'}}>No voices found on this OS</Text>}
-              </ScrollView>
+          {/* Subtitle / AI Speech Text */}
+          <View style={styles.subtitleContainer}>
+            {aiSpeechText.length > 0 && (
+              <Animated.Text style={[styles.cinematicText, { opacity: textOpacity }]}>
+                {aiSpeechText}
+              </Animated.Text>
+            )}
+          </View>
+
+          {/* Bottom Input Area */}
+          {status !== 'THINKING' && (
+            <View style={styles.bottomArea}>
+              <View style={styles.pillInputContainer}>
+                <TextInput
+                  style={styles.pillInput}
+                  placeholder={status === 'LISTENING' ? 'Listening...' : status === 'SPEAKING' ? 'Speaking...' : 'Ask anything...'}
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={inputText}
+                  onChangeText={setInputText}
+                  onSubmitEditing={handleSendText}
+                  returnKeyType="send"
+                  selectionColor="#8aebff"
+                />
+              </View>
             </View>
-          ) : (
-            <>
-              <View style={styles.visualizerContainer}>
-                <TouchableOpacity activeOpacity={1} onPress={startListening} onLongPress={simulateSpeech} style={styles.orbWrapper}>
-                  {status !== 'IDLE' && (
-                    <>
-                      <Animated.View style={[styles.ring, { borderColor: activeColor, transform: [{ scale: ring1Anim }], opacity: ring1Anim.interpolate({ inputRange: [1, 1.8], outputRange: [0.6, 0] }) }]} />
-                      <Animated.View style={[styles.ring, { borderColor: activeColor, transform: [{ scale: ring2Anim }], opacity: ring2Anim.interpolate({ inputRange: [1, 1.8], outputRange: [0.6, 0] }) }]} />
-                    </>
-                  )}
-                  <Animated.View style={[styles.orb, { backgroundColor: activeColor, shadowColor: activeColor, transform: [{ scale: pulseAnim }] }]}>
-                    <Ionicons name={status === 'LISTENING' ? "mic" : status === 'SPEAKING' ? "volume-high" : "hardware-chip"} size={42} color={status === 'IDLE' ? "#000" : "#fff"} />
-                  </Animated.View>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.subtitleContainer}>
-                <Animated.Text style={[styles.cinematicText, { opacity: textOpacity }]}>{aiSpeechText}</Animated.Text>
-              </View>
-
-              <View style={styles.bottomArea}>
-                <Text style={styles.hintText}>
-                  {status === 'IDLE' ? 'Tap the orb to speak, or hold for demo' : status === 'LISTENING' ? 'Listening...' : status === 'THINKING' ? 'Processing...' : 'Speaking...'}
-                </Text>
-                
-                <View style={styles.glassInput}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Or type here..."
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                    value={inputText}
-                    onChangeText={setInputText}
-                    onSubmitEditing={handleSendText}
-                    returnKeyType="send"
-                    editable={status === 'IDLE'}
-                    selectionColor="#d500f9"
-                  />
-                  <TouchableOpacity style={[styles.sendBtn, status !== 'IDLE' && { opacity: 0.3 }]} onPress={handleSendText} disabled={status !== 'IDLE'}>
-                    <Ionicons name="arrow-up" size={20} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </>
           )}
+        </>
+      )}
 
-        </KeyboardAvoidingView>
-      </BlurView>
+    </View>
+  </KeyboardAvoidingView>
+</BlurView>
+
     </Modal>
   );
 }
 
+
+
 const styles = StyleSheet.create({
-  absoluteFill: { flex: 1 },
-  container: { flex: 1, justifyContent: 'space-between' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingTop: 60, paddingHorizontal: 20, width: '100%' },
-  closeButton: { position: 'absolute', left: 20, top: 60, zIndex: 10 },
-  headerTitle: { color: 'rgba(255,255,255,0.6)', fontFamily: 'Outfit_600SemiBold', fontSize: 14, letterSpacing: 2, textTransform: 'uppercase' },
-  voicePickerBtn: { position: 'absolute', right: 20, top: 60, zIndex: 10 },
+  absoluteFill: { flex: 1, padding: 8 },
+  container: { flex: 1 },
+  modalWindow: {
+    flex: 1,
+    backgroundColor: '#0D1117', // Match the exact dark space-gray of the mockup
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: '#7129E6', // Bright neon purple border
+    overflow: 'hidden',
+    justifyContent: 'space-between',
+    shadowColor: '#7129E6',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    width: '100%'
+  },
+  headerTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+    fontFamily: Platform.OS === 'web' ? 'sans-serif' : 'System',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconBtnDark: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.03)',
+  },
+  iconBtnCyan: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#38D8D3', // Brighter cyan to match
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   voicePickerContainer: { flex: 1, padding: 20, marginTop: 20 },
-  voicePickerTitle: { color: 'white', fontFamily: 'Outfit_600SemiBold', fontSize: 20, marginBottom: 15, textAlign: 'center' },
+  voicePickerTitle: { color: 'white', fontWeight: '600', fontSize: 20, marginBottom: 15, textAlign: 'center' },
   voiceList: { flex: 1 },
-  voiceItem: { padding: 15, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, marginBottom: 10 },
-  voiceItemActive: { backgroundColor: '#d500f9' },
-  voiceItemText: { color: 'white', fontFamily: 'Outfit_500Medium', fontSize: 14 },
+  voiceItem: { padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, marginBottom: 10 },
+  voiceItemActive: { backgroundColor: '#7129E6' },
+  voiceItemText: { color: 'white', fontWeight: '500', fontSize: 14 },
   visualizerContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  orbWrapper: { width: 200, height: 200, alignItems: 'center', justifyContent: 'center' },
-  ring: { position: 'absolute', width: 120, height: 120, borderRadius: 60, borderWidth: 2 },
-  orb: { width: 110, height: 110, borderRadius: 55, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 30, elevation: 20 },
-  subtitleContainer: { paddingHorizontal: 30, minHeight: 120, justifyContent: 'center', alignItems: 'center' },
-  cinematicText: { fontFamily: 'Outfit_600SemiBold', fontSize: 26, color: '#FFFFFF', textAlign: 'center', lineHeight: 36, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
-  bottomArea: { paddingHorizontal: 20, paddingBottom: 40, alignItems: 'center' },
-  hintText: { fontFamily: 'Outfit_500Medium', fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 15 },
-  glassInput: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 40, paddingHorizontal: 20, paddingVertical: 12, width: '100%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
-  input: { flex: 1, color: '#fff', fontFamily: 'Outfit_500Medium', fontSize: 16 },
-  sendBtn: { backgroundColor: 'rgba(255,255,255,0.2)', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginLeft: 10 }
+  orbWrapper: { width: 300, height: 300, alignItems: 'center', justifyContent: 'center' },
+  subtitleContainer: { paddingHorizontal: 40, minHeight: 80, justifyContent: 'center', alignItems: 'center', paddingBottom: 20 },
+  cinematicText: { fontSize: 17, color: 'rgba(255,255,255,0.85)', textAlign: 'center', lineHeight: 26, fontWeight: '400', letterSpacing: 0.2, fontFamily: Platform.OS === 'web' ? 'sans-serif' : 'System' },
+  bottomArea: { paddingHorizontal: 24, paddingBottom: 32, alignItems: 'center', width: '100%' },
+  pillInputContainer: {
+    width: '100%',
+    backgroundColor: '#161B22', // Darker, sleeker pill background
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    paddingVertical: 14, // Slightly thinner
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.03)', // Subtle inner stroke
+  },
+  pillInput: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '400',
+    fontFamily: Platform.OS === 'web' ? 'sans-serif' : 'System',
+    flex: 1,
+  },
 });
+
+
