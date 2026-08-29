@@ -66,7 +66,8 @@ export type AvailabilityStatus =
   | 'out_of_stock'
   | 'not_available_for_quick_buy'
   | 'firebase_error'
-  | 'location_unknown';
+  | 'location_unknown'
+  | 'conversational';
 
 export interface AvailabilityResult {
   status: AvailabilityStatus;
@@ -127,7 +128,7 @@ export function detectCategoryQuery(rawQuery: string): string | null {
     'sports': 'sports', 'sport': 'sports',
     'fitness': 'fitness', 'gym': 'fitness',
     'electronics': 'electronics', 'electronic': 'electronics',
-    'fashion': 'fashion', 'clothes': 'fashion', 'clothing': 'fashion',
+    'fashion': 'fashion', 'clothes': 'fashion', 'clothing': 'fashion', 'cloths': 'fashion', 'apparel': 'fashion', 'wear': 'fashion',
     'beauty': 'beauty', 'skincare': 'beauty', 'cosmetics': 'beauty',
     'grocery': 'grocery', 'groceries': 'grocery',
     'gaming': 'gaming', 'games': 'gaming',
@@ -337,11 +338,18 @@ function searchLocalCatalog(
 ): ProductItem[] {
   const catalog = getLocalCatalog();
   const q = userQuery.toLowerCase().replace(/[^\w\s]/g, ' ');
-  const words = q.split(/\s+/).filter(w => w.length > 2);
+  const stopWords = new Set(['the', 'a', 'an', 'is', 'in', 'on', 'at', 'for', 'to', 'of', 'and', 'with', 'help', 'hi', 'hello', 'hey', 'what', 'who', 'how', 'why', 'can', 'you', 'please', 'show', 'me']);
+  const words = q.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
 
   // Determine category hint from query
   const categoryHint = inferCategoryFromUserQuery(userQuery);
   devLog('CATEGORY HINT', categoryHint);
+
+  if (words.length === 0 && !categoryHint) {
+    return []; // Not a product search query
+  }
+
+  const wordRegexes = words.map(w => new RegExp(`\\b${w}\\b`, 'i'));
 
   const scored = catalog.map(p => {
     const nameLower = (p.name || p.title || '').toLowerCase();
@@ -352,20 +360,23 @@ function searchLocalCatalog(
     const subCatName = (p.subcategoryName || '').toLowerCase();
 
     let score = 0;
+    let matched = false;
 
     // Category match is the strongest signal
-    if (categoryHint && catId === categoryHint) score += 10;
+    if (categoryHint && catId === categoryHint) { score += 10; matched = true; }
     // Also match subcategory name
-    if (categoryHint && subCatName.includes(categoryHint)) score += 6;
+    if (categoryHint && subCatName.includes(categoryHint)) { score += 6; matched = true; }
 
-    // Word-in-name match
-    for (const word of words) {
-      if (nameLower.includes(word)) score += 5;
-      if (kwJoined.includes(word)) score += 3;
-      if (catId.includes(word) || catName.includes(word)) score += 4;
-      if (tagsJoined.includes(word)) score += 2;   // tag match
-      if (subCatName.includes(word)) score += 3;   // subcategory match
+    // Word-in-name match (using boundary regex to avoid "one" matching "zone")
+    for (const regex of wordRegexes) {
+      if (regex.test(nameLower)) { score += 5; matched = true; }
+      if (regex.test(kwJoined)) { score += 3; matched = true; }
+      if (regex.test(catId) || regex.test(catName)) { score += 4; matched = true; }
+      if (regex.test(tagsJoined)) { score += 2; matched = true; }
+      if (regex.test(subCatName)) { score += 3; matched = true; }
     }
+
+    if (!matched) return { product: p, score: 0 };
 
     // State match bonus
     if (stateId && (p.stateId === stateId || p.stateId === 'all' || p.stateId === 'All')) {
@@ -508,6 +519,27 @@ export async function checkProductAvailability(
     };
   }
 
+  // ── Guard: Conversational Intent Detection ──
+  const qLower = userQuery.toLowerCase().replace(/[^\w\s]/g, ' ');
+  const stopWords = new Set([
+    'the', 'a', 'an', 'is', 'in', 'on', 'at', 'for', 'to', 'of', 'and', 'with', 'help', 'hi', 'hello', 'hey', 
+    'what', 'who', 'how', 'why', 'can', 'you', 'please', 'show', 'me', 'guide', 'assist', 'payment', 'method', 
+    'return', 'cancel', 'track', 'order', 'status', 'refund', 'support', 'contact', 'delivery', 'app',
+    'one', 'two', 'three', 'four', 'five', '1st', '2nd', '3rd', '4th', '5th', 'first', 'second', 'third', 'fourth', 'fifth',
+    'last', 'previous', 'next', 'this', 'that', 'these', 'those', 'it', 'them', 'item', 'product'
+  ]);
+  const words = qLower.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+  const categoryHint = detectCategoryQuery(userQuery);
+
+  if (words.length === 0 && !categoryHint) {
+    devLog('INTENT', 'CONVERSATIONAL');
+    return {
+      status: 'conversational',
+      requestedProduct: userQuery,
+      location: { state: stateName, stateId },
+    };
+  }
+
   // ── Detect category-only browse queries ──
   const categoryId = detectCategoryQuery(userQuery);
   if (categoryId) {
@@ -551,7 +583,8 @@ export async function checkProductAvailability(
 
   // ── Step 1: Search LOCAL CATALOG for products in user's state ──
   devLog('SEARCHING LOCAL CATALOG', `stateId=${stateId}, query="${userQuery}"`);
-  const stateProducts = searchLocalCatalog(userQuery, stateId, 5);
+  const rawLocalProducts = searchLocalCatalog(userQuery, stateId, 15);
+  const stateProducts = rawLocalProducts.filter(p => !stateId || p.stateId === stateId || p.stateId === 'all' || p.stateId === 'All').slice(0, 5);
   devLog('LOCAL CATALOG STATE RESULTS', stateProducts.length);
 
   if (stateProducts.length > 0) {
@@ -597,16 +630,13 @@ export async function checkProductAvailability(
 
   // ── Step 2: Not in user's state — check if product exists in ANY state ──
   devLog('STATE CHECK', `Not found in ${stateName} — checking other states`);
-  const globalProducts = searchLocalCatalog(userQuery, undefined, 5);
+  const globalProducts = rawLocalProducts.filter(p => p.stateId !== stateId && p.stateId !== 'all' && p.stateId !== 'All').slice(0, 5);
   devLog('GLOBAL CATALOG RESULTS', globalProducts.length);
 
   if (globalProducts.length > 0) {
     // Product exists but not in user's state
     const otherStates = [...new Set(
-      globalProducts
-        .filter(p => p.stateId !== stateId && p.stateId !== 'all' && p.stateId !== 'All')
-        .map(p => p.stateName)
-        .filter(Boolean)
+      globalProducts.map(p => p.stateName).filter(Boolean)
     )];
     devLog('FOUND IN OTHER STATES', otherStates);
     return {
@@ -650,8 +680,17 @@ export function buildAvailabilityContext(result: AvailabilityResult): string {
       return (
         `FIREBASE AVAILABILITY RESULT: NOT FOUND\n` +
         `Location: ${loc}\n` +
-        `"${result.requestedProduct}" does NOT exist anywhere in the EasyBuy catalog.\n` +
-        `You MUST tell the user this product is not available. Do NOT say it exists.`
+        `Query: "${result.requestedProduct}"\n` +
+        `If the user was trying to buy or find a product, it does NOT exist in the catalog. Tell them it's unavailable.\n` +
+        `However, if this was a general question, app support (e.g. payment methods, returns), or casual chat, IGNORE this result and answer their question normally using your app knowledge.`
+      );
+      
+    case 'conversational':
+      return (
+        `FIREBASE AVAILABILITY RESULT: CONVERSATIONAL QUERY\n` +
+        `Location: ${loc}\n` +
+        `The user is NOT searching for a product right now. They are asking a general question, seeking help, or chatting.\n` +
+        `DO NOT try to sell them anything or create a product bundle. Just answer their question naturally and assist them with the app.`
       );
 
     case 'not_available_in_state': {

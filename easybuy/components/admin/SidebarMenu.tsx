@@ -10,7 +10,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { AdminSection } from './adminTypes';
-import { C } from './adminTheme';
 
 interface BottomNavProps {
   active: AdminSection;
@@ -22,136 +21,96 @@ const TABS: Array<{
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   activeIcon: keyof typeof Ionicons.glyphMap;
-  color: string;
 }> = [
-  { id: 'dashboard',  label: 'Home',       icon: 'grid-outline',     activeIcon: 'grid',             color: C.primary },
-  { id: 'products',   label: 'Products',   icon: 'cube-outline',     activeIcon: 'cube',             color: C.secondary },
-  { id: 'categories', label: 'Categories', icon: 'albums-outline',   activeIcon: 'albums',           color: C.violet },
-  { id: 'orders',     label: 'Orders',     icon: 'receipt-outline',  activeIcon: 'receipt',          color: C.warning },
-  { id: 'analytics',  label: 'Analytics',  icon: 'bar-chart-outline',activeIcon: 'bar-chart',        color: C.success },
+  { id: 'dashboard',  label: 'Dashboard',  icon: 'grid-outline',     activeIcon: 'grid' },
+  { id: 'products',   label: 'Products',   icon: 'bag-handle-outline', activeIcon: 'bag-handle' },
+  { id: 'orders',     label: 'Orders',     icon: 'receipt-outline',  activeIcon: 'receipt' },
+  { id: 'stock',      label: 'Stock',      icon: 'cube-outline',     activeIcon: 'cube' },
+  { id: 'aicontrol',  label: 'AI Control', icon: 'hardware-chip-outline', activeIcon: 'hardware-chip' },
 ];
 
 export const AdminBottomNav: React.FC<BottomNavProps> = ({ active, onSelect }) => {
-  const scaleAnims = useRef(TABS.map(() => new Animated.Value(1))).current;
-  const bgAnims    = useRef(TABS.map(() => new Animated.Value(0))).current;
-
-  useEffect(() => {
-    TABS.forEach((tab, i) => {
-      Animated.parallel([
-        Animated.spring(scaleAnims[i], {
-          toValue: active === tab.id ? 1 : 1,
-          useNativeDriver: true,
-        }),
-        Animated.timing(bgAnims[i], {
-          toValue: active === tab.id ? 1 : 0,
-          duration: 200,
-          useNativeDriver: false,
-        }),
-      ]).start();
-    });
-  }, [active]);
-
-  const handlePress = (tab: typeof TABS[0], index: number) => {
+  const handlePress = (tab: typeof TABS[0]) => {
     if (tab.id === active) return;
-    Animated.sequence([
-      Animated.timing(scaleAnims[index], {
-        toValue: 0.88,
-        duration: 80,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnims[index], {
-        toValue: 1,
-        friction: 4,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    if (Platform.OS !== 'web') {
-      Haptics.selectionAsync().catch(() => {});
-    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onSelect(tab.id);
   };
 
   return (
     <View style={styles.container}>
-      {TABS.map((tab, i) => {
-        const isActive = active === tab.id;
-        const bgColor = bgAnims[i].interpolate({
-          inputRange: [0, 1],
-          outputRange: ['rgba(0,0,0,0)', `${tab.color}22`],
-        });
-
-        return (
-          <TouchableOpacity
-            key={tab.id}
-            style={styles.tab}
-            onPress={() => handlePress(tab, i)}
-            activeOpacity={0.9}
-          >
-            <Animated.View
-              style={[
-                styles.iconWrap,
-                { backgroundColor: bgColor, transform: [{ scale: scaleAnims[i] }] },
-              ]}
+      <View style={styles.navBar}>
+        {TABS.map((tab) => {
+          const isActive = active === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              activeOpacity={0.8}
+              onPress={() => handlePress(tab)}
+              style={styles.tab}
             >
-              <Ionicons
-                name={isActive ? tab.activeIcon : tab.icon}
-                size={22}
-                color={isActive ? tab.color : C.textMuted}
-              />
-              {isActive && (
-                <View style={[styles.activeDot, { backgroundColor: tab.color }]} />
-              )}
-            </Animated.View>
-            <Text style={[styles.label, isActive && { color: tab.color, fontWeight: '700' }]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+              <View style={[styles.iconContainer, isActive && styles.activeIconContainer]}>
+                <Ionicons
+                  name={isActive ? tab.activeIcon : tab.icon}
+                  size={20}
+                  color={isActive ? '#3B82F6' : '#94A3B8'}
+                />
+              </View>
+              <Text style={[styles.label, isActive && styles.activeLabel]}>{tab.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 24 : 16,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  navBar: {
     flexDirection: 'row',
-    backgroundColor: C.surface,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
-    paddingTop: 8,
-    paddingHorizontal: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 100,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 20,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    maxWidth: 400,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 2,
+    gap: 4,
   },
-  iconWrap: {
-    width: 44,
-    height: 36,
-    borderRadius: 14,
-    justifyContent: 'center',
+  iconContainer: {
+    width: 40,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    marginBottom: 2,
+    justifyContent: 'center',
   },
-  activeDot: {
-    position: 'absolute',
-    bottom: 3,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+  activeIconContainer: {
+    backgroundColor: '#EFF6FF',
   },
   label: {
     fontSize: 10,
-    color: C.textMuted,
     fontWeight: '600',
-    letterSpacing: 0.2,
+    color: '#94A3B8',
+  },
+  activeLabel: {
+    color: '#3B82F6',
   },
 });

@@ -33,12 +33,21 @@ const FAB_GRAD: [string, string] = ['#7C3AED', '#4C1D95'];
 interface ExpandableAIFabProps {
   onOpenVoice: () => void;
   onOpenChat: () => void;
+  closeSignal?: number;
 }
 
-export const ExpandableAIFab: React.FC<ExpandableAIFabProps> = ({ onOpenVoice, onOpenChat }) => {
+export const ExpandableAIFab: React.FC<ExpandableAIFabProps> = ({ onOpenVoice, onOpenChat, closeSignal }) => {
   const [isOpen, setIsOpen] = useState(false);
   
   const menuAnim = useSharedValue(0);
+
+  // Auto-close when user scrolls (closeSignal increments each time)
+  useEffect(() => {
+    if (closeSignal && closeSignal > 0) {
+      setIsOpen(false);
+      menuAnim.value = withSpring(0, { mass: 0.6, damping: 20, stiffness: 200 });
+    }
+  }, [closeSignal]);
   
   // ─── Un-stoppable UI Thread Physics ──────────────────────────────────────
   const rotateVal = useSharedValue(0);
@@ -126,12 +135,8 @@ export const ExpandableAIFab: React.FC<ExpandableAIFabProps> = ({ onOpenVoice, o
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      {isOpen && (
-        <Pressable 
-          style={{ position: 'absolute', top: -10000, left: -10000, right: -10000, bottom: -10000, width: 20000, height: 20000 }} 
-          onPress={toggle} 
-        />
-      )}
+
+
       
       {/* ─── SLEEK SPEED DIAL MENU ─── */}
       
@@ -282,11 +287,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   
-    shadowColor: '#21D4ED',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 15,
-    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
   },
   orbMask: {
     width: ORB_SIZE,

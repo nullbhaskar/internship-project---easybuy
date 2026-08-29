@@ -6,6 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { generateFullIndianCatalog, ProductItem } from '../constants/catalogGenerator';
+import { GROQ_API_KEY, IS_DEV } from '../config/env';
+import { AppError, ErrorCode } from '../utils/AppError';
 import { QB_CATEGORIES } from '../constants/quickbuyData';
 import {
   checkProductAvailability,
@@ -54,7 +56,7 @@ export async function callGroq(messages: GroqMessage[], maxTokens = 512): Promis
     return json.choices?.[0]?.message?.content?.trim() ?? '';
   } catch (e: any) {
     console.warn('[GroqAI] Request failed:', e?.message ?? e);
-    throw e;
+    throw new AppError(ErrorCode.AI_ERROR, 'The AI service is currently unavailable. Please try again later.');
   }
 }
 
@@ -119,6 +121,11 @@ STATE-BASED SYSTEM:
 IMPORTANT: EasyBuy does NOT carry luxury cricket brand bats like Kookaburra, Gray-Nicolls, or SS Ton.
 EasyBuy carries generic/standard sports equipment in the Sports & Outdoors category.
 EasyBuy does NOT carry: imported luxury items, premium foreign brands not listed above, custom artisan crafts not in catalog.
+
+PAYMENT METHODS:
+- EasyBuy CURRENTLY ONLY supports Cash on Delivery (COD).
+- We do NOT support Credit Cards, Debit Cards, UPI, Netbanking, or Mobile Wallets yet.
+- If asked, strictly tell the user that currently only Cash on Delivery (COD) is available, but online payments are coming soon.
 `;
 
 // ─── 2. CATALOG SEARCH ENGINE ────────────────────────────────────────────────
@@ -494,7 +501,8 @@ export async function processUniversalAIShopping(
     '- Casually brag about EasyBuy\'s tech stack. Mention how our "10-Minute Firebase Real-time Backend" or "Spatial Navigation Engine" ensures they get what they want instantly.\n\n' +
     '🚫 STRICT GUARDRAILS (ZERO HALLUCINATION):\n' +
     '1. You MUST ONLY recommend products that exist in the catalog context below. NEVER invent products or prices.\n' +
-    '2. If the user asks for a specific brand/item NOT in the catalog, politely say: "I checked our live 10-minute inventory, and we are out of [Brand], but I pulled some incredible premium alternatives for you."\n\n' +
+    '2. If the user asks for a specific brand/item NOT in the catalog, politely say: "I checked our live 10-minute inventory, and we are out of [Brand], but I pulled some incredible premium alternatives for you."\n' +
+    '3. NEVER guess or invent stock availability, delivery zones, or PIN codes. If it is not explicitly provided in the context, do NOT claim it is available.\n\n' +
     'FORMAT:\n' +
     'Reply ONLY in this exact JSON structure — no markdown blocks:\n' +
     '{\n' +
@@ -709,6 +717,7 @@ export interface AIChatResponse {
   replyText: string;
   hasProducts: boolean;
   action?: 'ADD_TO_CART' | 'ADD_TO_WISHLIST';
+  actionPayload?: string;
   learnedFact?: string;
   bundle?: {
     title: string;
@@ -725,7 +734,8 @@ export interface AIChatResponse {
 export async function chatWithEasyBuyAI(
   conversationHistory: AIChatMessage[],
   stateName?: string,
-  isPureVoiceMode: boolean = false
+  isPureVoiceMode: boolean = false,
+  userOrdersContext?: string
 ): Promise<AIChatResponse> {
   const lastUserMsg = [...conversationHistory].reverse().find((m) => m.role === 'user')?.content || '';
 
@@ -765,7 +775,7 @@ export async function chatWithEasyBuyAI(
   const FIREBASE_GUARDRAILS =
     '\n\n🔴 ABSOLUTE FIREBASE GROUNDING RULES (HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE):\n' +
     '1. The FIREBASE AVAILABILITY RESULT in the user message is the ONLY source of truth for product availability.\n' +
-    '2. If FIREBASE AVAILABILITY RESULT says NOT FOUND: You MUST tell the user that product is not in the EasyBuy catalog. Do NOT say it exists. Do NOT suggest it might be available.\n' +
+    '2. If FIREBASE AVAILABILITY RESULT says NOT FOUND: This ONLY means no products matched the query. If the user was clearly trying to find or buy a physical product, tell them it is not in the EasyBuy catalog. HOWEVER, for ANY OTHER request (e.g. order status, tracking, account, help, or casual chat), completely IGNORE the NOT FOUND result and assist them naturally. For order status, strictly read the "USER RECENT ORDERS" context provided in the prompt.\n' +
     '3. If FIREBASE AVAILABILITY RESULT says NOT AVAILABLE IN USER\'S STATE: Tell user it is not available in their state. You MAY mention other states if listed.\n' +
     '4. If FIREBASE AVAILABILITY RESULT says OUT OF STOCK: Tell user it is out of stock.\n' +
     '5. If FIREBASE AVAILABILITY RESULT says NOT QUICK BUY: Tell user the product exists but QuickBuy is not available for it.\n' +
@@ -773,15 +783,18 @@ export async function chatWithEasyBuyAI(
     '7. If FIREBASE AVAILABILITY RESULT says LOCATION UNKNOWN: Ask user to enable location. Do NOT assume any state.\n' +
     '8. If FIREBASE AVAILABILITY RESULT says AVAILABLE: Use the verified product list provided. Set hasProducts: true.\n' +
     '9. NEVER use your general world knowledge to decide if EasyBuy has a product. Firebase decides. Period.\n' +
-    '10. NEVER invent product names, prices, categories, brands, stock status, or delivery estimates.\n';
+    '10. NEVER invent product names, prices, categories, brands, stock status, or delivery estimates.\n' +
+    '\n⚡ AUTONOMOUS ACTIONS:\n' +
+    '- If the user EXPLICITLY asks to "save for later", "wishlist", or "favorite" an item, you MUST set `action: "ADD_TO_WISHLIST"` and `actionPayload` to the exact product ID.\n' +
+    '- Only trigger actions if you have a valid product ID from the Firebase result.\n';
 
   const APP_KNOWLEDGE =
     '\n\n🧠 EASYBUY SYSTEM & FIREBASE ARCHITECTURE KNOWLEDGE:\n' +
     'You possess full knowledge of how EasyBuy is built. If the user asks about your backend, Firebase, or app structure, you can explain:\n' +
     '- Tech Stack: React Native (Expo) frontend, Firebase/Firestore backend, Groq API for LLM processing, and OpenAI TTS for voice.\n' +
     '- Firebase Structure: Data is stored in collections like `products` (contains documents with name, price, stateId, searchKeywords arrays, and stock), `states` (contains state-specific metadata and featured categories), and user data collections.\n' +
-    '- Calendar & Events: EasyBuy supports future tracking of product launches, flash sales, and calendar events seamlessly integrated into the shopping experience.\n' +
-    '- Search Mechanism: Your search does not rely on direct exact-match Firestore queries alone; it uses a hybrid RAG (Retrieval-Augmented Generation) pipeline where the app first runs a local catalog verification, resolves keywords and tags, and then feeds you the exact, truthful context.\n';
+    '- Search Mechanism: Hybrid RAG pipeline with local catalog verification and real-time state filtering.\n' +
+    '- PAYMENT METHODS: EasyBuy CURRENTLY ONLY supports Cash on Delivery (COD). We do NOT support Credit Cards, Debit Cards, UPI, Netbanking, or Mobile Wallets yet. If asked, explicitly state that ONLY Cash on Delivery is available right now.\n';
 
   let systemPrompt = '';
 
@@ -800,9 +813,10 @@ export async function chatWithEasyBuyAI(
       '2. ENGLISH ONLY: Always reply in English.\n' +
       '3. NO SYMBOLS: Never use *, #, -, bullet points, emojis, or markdown.\n' +
       '4. WARM TONE: Sound like a friendly, helpful person.\n' +
-      '5. MEMORY: If user shares a personal fact, include it in the learnedFact field.\n\n' +
+      '5. ADD TO CART: If the user asks to add to cart, tell them: "I cannot add to cart from voice. Please use the Ask AI text chat or add it manually."\n' +
+      '6. MEMORY: If user shares a personal fact, include it in the learnedFact field.\n\n' +
       'FORMAT: Reply ONLY in pure JSON. No markdown.\n' +
-      '{ "replyText": "your English only spoken response", "hasProducts": false, "learnedFact": "optional" }';
+      '{ "replyText": "your English only spoken response", "hasProducts": false, "action": "ADD_TO_WISHLIST", "actionPayload": "product_id", "learnedFact": "optional" }';
   } else {
     systemPrompt =
       'You are "EasyBuy AI" — an advanced, witty, and highly empathetic Shopping Assistant for Indian e-commerce.\n' +
@@ -810,14 +824,16 @@ export async function chatWithEasyBuyAI(
       userTaughtFacts +
       APP_KNOWLEDGE +
       FIREBASE_GUARDRAILS +
-      '\n🔥 PERSONA:\n' +
-      '1. High EQ & Conversational Brilliance: Chat casually, offer emotional support, and vibe with the user.\n' +
+      '\n🔥 PERSONA & SMARTS:\n' +
+      '1. High EQ & Conversational Brilliance: Chat casually, offer emotional support, and vibe with the user. You are much smarter than a simple voice bot.\n' +
       '2. Multilingual: If the user types in Hindi, Hinglish, or English, reply naturally matching their language.\n' +
-      '3. State-Aware: Reference their verified location to build trust.\n' +
-      '4. LEARNING: If the user tells you a fact about themselves, include a "learnedFact" field in your JSON.\n\n' +
+      '3. Intent Recognition: If the user is just saying "hi", "help", "who are you", or asking a general question, DO NOT create a product bundle. Set `hasProducts: false` and just chat naturally.\n' +
+      '4. State-Aware: Reference their verified location to build trust.\n' +
+      '5. ADD TO CART: If the user asks to add to cart, you MUST reply: "I cannot add items to your cart directly. Please scroll up and tap the green \'Add to Cart\' button on the product card!"\n' +
+      '6. LEARNING: If the user tells you a fact about themselves, include a "learnedFact" field in your JSON.\n\n' +
       'FORMAT: Reply ONLY in pure JSON (NO MARKDOWN, NO ```json).\n' +
-      'If shopping (hasProducts true): { "replyText": "reply", "hasProducts": true, "learnedFact": "optional", "bundle": { "title": "title", "emoji": "🔥", "tagline": "...", "items": [ { "id": "real ID from Firebase result", "name": "exact name", "price": number, "quantity": "1", "category": "cat", "reason": "reason" } ], "totalPrice": number } }\n' +
-      'If not available / just chatting: { "replyText": "your response", "hasProducts": false, "learnedFact": "optional" }';
+      'If shopping (hasProducts true): { "replyText": "reply", "hasProducts": true, "action": "ADD_TO_WISHLIST", "actionPayload": "product_id", "learnedFact": "optional", "bundle": { "title": "title", "emoji": "🔥", "tagline": "...", "items": [ { "id": "real ID from Firebase result", "name": "exact name", "price": number, "quantity": "1", "category": "cat", "reason": "reason" } ], "totalPrice": number } }\n' +
+      'If casual chat / no products found (hasProducts false): { "replyText": "your response", "hasProducts": false, "action": "ADD_TO_WISHLIST", "actionPayload": "product_id", "learnedFact": "optional" }';
   }
 
   // ── Step 5: Build the user prompt — Firebase result is the grounding context ──
@@ -828,6 +844,7 @@ export async function chatWithEasyBuyAI(
   const userPrompt =
     locationHint + '\n\n' +
     availabilityContext + '\n\n' +
+    (userOrdersContext ? userOrdersContext + '\n\n' : '') +
     'User message: "' + lastUserMsg + '"';
 
   // ── Step 6: Call Groq with the grounded context ──

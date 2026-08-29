@@ -24,6 +24,9 @@ import { useAddress } from '../context/AddressContext';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import { QBProduct, QBCategory, QB_CATEGORIES } from '../constants/quickbuyData';
+import { db } from '../services/firebase';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { ActivityIndicator } from 'react-native';
 
 const { width } = Dimensions.get('window');
 const RIGHT_WIDTH = width - 105; // right panel width
@@ -56,6 +59,76 @@ export default function QuickBuyScreen() {
   const [drawerVisible, setDrawerVisible]   = useState(false);
   const [quickAddVisible, setQuickAddVisible] = useState(false);
   const [quickAddProduct, setQuickAddProduct] = useState<QuickAddProduct | null>(null);
+
+  const [quickBuyCategories, setQuickBuyCategories] = useState<QBCategory[]>(QB_CATEGORIES);
+  const [isLoading, setIsLoading] = useState(true);
+
+  React.useEffect(() => {
+    async function fetchQuickBuyItems() {
+      setIsLoading(true);
+      try {
+        const stateIdToUse = selectedAddress?.stateId || 'bihar';
+        const q = query(
+          collection(db, 'products'),
+          where('stateId', '==', stateIdToUse),
+          where('isQuickDelivery', '==', true),
+          limit(50)
+        );
+        const snap = await getDocs(q);
+        const products = snap.docs.map(d => {
+          const data = d.data();
+          return {
+            id: data.id || d.id,
+            name: data.name,
+            weight: '1 pc', // fallback for quickbuy weight
+            price: `₹${data.priceNumber || data.price || 0}`,
+            originalPrice: data.originalPriceNumber ? `₹${data.originalPriceNumber}` : undefined,
+            image: data.thumbnail || data.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+            categoryId: data.categoryId || 'cat-groceries'
+          } as QBProduct & { categoryId: string };
+        });
+
+        if (products.length === 0) {
+          setQuickBuyCategories(QB_CATEGORIES); // fallback if no quick delivery items
+          setIsLoading(false);
+          return;
+        }
+
+        const popularProducts = products.slice(0, 10);
+        const dairyProducts = products.filter(p => p.categoryId === 'cat-groceries' || p.categoryId === 'cat-health').slice(0, 8);
+        const snacksProducts = products.filter(p => p.categoryId === 'cat-groceries' || p.name.toLowerCase().includes('snack') || p.name.toLowerCase().includes('chip') || p.name.toLowerCase().includes('biscuit')).slice(0, 8);
+        
+        const categories: QBCategory[] = [
+          {
+            id: 'popular',
+            name: 'Trending',
+            iconName: 'star-outline',
+            products: popularProducts.length > 0 ? popularProducts : QB_CATEGORIES[0].products
+          },
+          {
+            id: 'dairy',
+            name: 'Essentials',
+            iconName: 'egg-outline',
+            products: dairyProducts.length > 0 ? dairyProducts : QB_CATEGORIES[1].products
+          },
+          {
+            id: 'snacks',
+            name: 'Snacks & More',
+            iconName: 'fast-food-outline',
+            products: snacksProducts.length > 0 ? snacksProducts : QB_CATEGORIES[2].products
+          }
+        ];
+        
+        setQuickBuyCategories(categories);
+      } catch (err) {
+        console.error('Failed to fetch QuickBuy items', err);
+        setQuickBuyCategories(QB_CATEGORIES); // fallback
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchQuickBuyItems();
+  }, [selectedAddress?.stateId]);
 
   // ── Tab Switch Animation ──────────────────────────────────────────────────
   const contentFadeAnim = useRef(new Animated.Value(1)).current;
@@ -142,7 +215,7 @@ export default function QuickBuyScreen() {
     })
   ).current;
 
-  const activeCategory = QB_CATEGORIES.find(c => c.id === activeTabId) || QB_CATEGORIES[0];
+  const activeCategory = quickBuyCategories.find(c => c.id === activeTabId) || quickBuyCategories[0];
 
   const handleAddPress = (product: QBProduct) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -233,7 +306,7 @@ export default function QuickBuyScreen() {
             {/* LEFT SIDEBAR */}
             <View style={styles.sidebar}>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 8 }}>
-                {QB_CATEGORIES.map(cat => {
+                {quickBuyCategories.map(cat => {
                   const isActive = cat.id === activeTabId;
                   return (
                     <TouchableOpacity
@@ -292,7 +365,16 @@ export default function QuickBuyScreen() {
                 </View>
 
                 <View style={styles.grid}>
-                  {activeCategory.products.map((product: QBProduct) => (
+                  {isLoading ? (
+                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, width: RIGHT_WIDTH }}>
+                      <ActivityIndicator size="large" color="#16A34A" />
+                      <Text style={{ marginTop: 12, color: '#64748B', fontFamily: 'Inter-Medium' }}>Finding nearest products...</Text>
+                    </View>
+                  ) : activeCategory.products.length === 0 ? (
+                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, width: RIGHT_WIDTH }}>
+                      <Text style={{ color: '#64748B', fontFamily: 'Inter-Medium' }}>No QuickBuy items found here.</Text>
+                    </View>
+                  ) : activeCategory.products.map((product: QBProduct) => (
                     <View key={product.id} style={styles.productCard}>
                       <View style={styles.circleWrap}>
                         <Image source={{ uri: product.image }} style={styles.productImg} resizeMode="cover" />

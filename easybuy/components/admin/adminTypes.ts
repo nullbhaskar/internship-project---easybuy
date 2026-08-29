@@ -1,4 +1,4 @@
-export type AdminSection = 'dashboard' | 'products' | 'categories' | 'orders' | 'analytics' | 'settings';
+export type AdminSection = 'dashboard' | 'products' | 'orders' | 'stock' | 'aicontrol';
 
 export interface AdminProduct {
   id: string;

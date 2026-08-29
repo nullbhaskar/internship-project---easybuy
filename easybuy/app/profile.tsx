@@ -14,7 +14,9 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { Link, useRouter, useLocalSearchParams } from 'expo-router';
+import { AppError, ErrorCode, handleError } from '../utils/AppError';
+import { DevTools } from '../utils/DevTools';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -269,7 +271,7 @@ export default function ProfileScreen() {
       router.replace('/login');
     } catch (e) {
       console.log('Logout error:', e);
-      Alert.alert('Logout Error', 'Could not sign out. Please try again.');
+      handleError(new AppError(ErrorCode.AUTH_ERROR, 'Could not sign out. Please try again.'));
     }
   };
 

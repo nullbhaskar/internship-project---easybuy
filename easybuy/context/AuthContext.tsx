@@ -2,8 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { GuestAuthModal } from '../components/auth/GuestAuthModal';
+import { registerForPushNotificationsAsync } from '../utils/notifications';
 
 export type AuthStateType = 'authenticated' | 'guest' | 'logged_out';
 
@@ -16,6 +17,7 @@ export interface EasyBuyUser {
   dob?: string;
   photoURL?: string;
   isAdmin?: boolean;
+  pushToken?: string;
 }
 
 interface AuthContextType {
@@ -75,39 +77,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        // 2. Check if Firebase currentUser exists
-        if (auth.currentUser) {
-          const fbUser = auth.currentUser;
-          let profileData: EasyBuyUser = {
-            uid: fbUser.uid,
-            email: fbUser.email || '',
-            fullName: fbUser.displayName || 'EasyBuy User',
-            photoURL: fbUser.photoURL || undefined,
-          };
-
-          try {
-            const snap = await getDoc(doc(db, 'users', fbUser.uid));
-            if (snap.exists()) {
-              const d = snap.data();
-              profileData = {
-                ...profileData,
-                fullName: d.fullName || profileData.fullName,
-                phone: d.phone,
-                gender: d.gender,
-                dob: d.dob,
-              };
-            }
-          } catch {}
-
-          await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
-          await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify(profileData));
-          if (isMounted) {
-            setUser(profileData);
-            setAuthState('authenticated');
-          }
-          return;
-        }
-
         // 3. Otherwise check if Guest mode was set
         const isGuestStored = await AsyncStorage.getItem(GUEST_STORAGE_KEY);
         if (isMounted) {
@@ -147,8 +116,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               phone: d.phone,
               gender: d.gender,
               dob: d.dob,
+              isAdmin: d.isAdmin || false,
             };
           }
+          
+          // FETCH PUSH TOKEN
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            profile.pushToken = token;
+            await updateDoc(doc(db, 'users', firebaseUser.uid), { pushToken: token }).catch(() => console.log("Failed to save push token"));
+          }
+          
         } catch {}
 
         await AsyncStorage.removeItem(GUEST_STORAGE_KEY);

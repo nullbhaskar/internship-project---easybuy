@@ -20,6 +20,11 @@ import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { chatWithEasyBuyAI, AIChatMessage } from '../../services/groqAI';
 import { voiceRecognition } from '../../services/voiceRecognition';
+import { useCart } from '../../context/CartContext';
+import { useWishlist } from '../../context/WishlistContext';
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../services/firebase';
+import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 
 const { width, height } = Dimensions.get('window');
 
@@ -35,6 +40,10 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
   const [inputText, setInputText] = useState('');
   const [aiSpeechText, setAiSpeechText] = useState('');
   const [volume, setVolume] = useState(0);
+
+  const { addToCart } = useCart();
+  const { toggleWishlist } = useWishlist();
+  const { user } = useAuth();
   
   // VOICE PICKER STATE
   const [showVoicePicker, setShowVoicePicker] = useState(false);
@@ -49,9 +58,16 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
   useEffect(() => {
     // Load voices on mount
     Speech.getAvailableVoicesAsync().then(voices => {
-      setAvailableVoices(voices);
-      const premiumVoice = voices.find(v => v.identifier.includes('premium') || v.identifier.includes('Google') || v.identifier.includes('en-GB') || v.identifier.includes('en-IN-x'));
-      if (premiumVoice) setActiveVoiceId(premiumVoice.identifier);
+      // STRICT FILTER: Only show Google Hindi or any Hindi voice if Google Hindi is not found
+      let hindiVoices = voices.filter(v => v.name.includes('Google') && (v.name.includes('हिन्दी') || v.name.includes('Hindi')));
+      if (hindiVoices.length === 0) {
+        hindiVoices = voices.filter(v => v.language.includes('hi'));
+      }
+      // If still no Hindi voice, fallback to a single default to prevent empty lists
+      const finalVoices = hindiVoices.length > 0 ? hindiVoices : voices.slice(0, 1);
+      
+      setAvailableVoices(finalVoices);
+      if (finalVoices.length > 0) setActiveVoiceId(finalVoices[0].identifier);
     });
   }, []);
 
@@ -192,13 +208,39 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
     setHistory(newHistory);
     setInputText('');
     
+    let userOrdersContext = '';
+    if (user) {
+      try {
+        const q = query(collection(db, 'orders'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'), limit(3));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const orders = snap.docs.map(d => d.data());
+          userOrdersContext = 'USER RECENT ORDERS:\n' + orders.map((o: any, i) => 
+            `${i+1}. Order ID: ${o.id || 'N/A'}, Total: ₹${o.totalAmount}, Status: ${o.status || 'Processing'}`
+          ).join('\n');
+        }
+      } catch (err) {
+        console.log('Error fetching orders for AI context', err);
+      }
+    }
+    
     try {
-      const res = await chatWithEasyBuyAI(newHistory, stateName, true);
+      const res = await chatWithEasyBuyAI(newHistory, stateName, true, userOrdersContext);
       setHistory([...newHistory, { role: 'assistant', content: res.replyText }]);
       setAiSpeechText(res.replyText);
       setStatus('SPEAKING');
       Animated.timing(textOpacity, { toValue: 1, duration: 800, useNativeDriver: true }).start();
       speakText(res.replyText);
+
+      // Handle Auto Actions
+      if (res.action === 'ADD_TO_WISHLIST' && res.actionPayload) {
+        toggleWishlist({
+          id: res.actionPayload,
+          title: 'Product (Saved via Voice)',
+          price: '₹...',
+        });
+      }
+
     } catch (e) {
       setAiSpeechText('Connection lost.');
       Animated.timing(textOpacity, { toValue: 1, duration: 500, useNativeDriver: true }).start();

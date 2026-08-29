@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -27,6 +28,9 @@ import { voiceRecognition } from '../../services/voiceRecognition';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useAddress } from '../../context/AddressContext';
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../services/firebase';
+import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -44,13 +48,10 @@ interface AIAssistantChatModalProps {
   isDarkMode?: boolean;
 }
 
-const STARTER_PROMPTS = [
-  '🎁 Birthday gift for a friend',
-  '🫖 Chai aur pakora recipe kit',
-  '👗 College fest casual outfit',
-  '💪 High protein gym diet',
-  '⚡ 10-minute midnight snacks',
-  '💬 Tell me a shopping joke',
+const SUGGESTED_ACTIONS = [
+  { text: 'Birthday gift for a friend', icon: 'gift-outline' },
+  { text: 'Office supply restock', icon: 'cube-outline' },
+  { text: 'Local dinner recommendations', icon: 'restaurant-outline' },
 ];
 
 export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
@@ -61,13 +62,14 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
   const { addToCart } = useCart();
   const { toggleWishlist } = useWishlist();
   const { selectedStateName } = useAddress();
+  const { user } = useAuth();
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome_1',
       sender: 'assistant',
-      text: 'Hey there! I am your EasyBuy AI Assistant 🧠. Whether you need a midnight Maggi restock, a last-minute birthday gift, or just some college outfit advice, main sambhal lunga (I got this). What’s on your mind today?',
-      timestamp: 'Just now',
+      text: 'Good morning. I am your EasyBuy AI Assistant. How can I assist you with your purchases or errands today?',
+      timestamp: '',
     },
   ]);
 
@@ -135,7 +137,31 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
         };
       });
 
-      const res = await chatWithEasyBuyAI(history, selectedStateName);
+      let userOrdersContext = 'USER RECENT ORDERS: [User is not logged in. Ask them to log in to track orders]';
+      if (user) {
+        try {
+          const q = query(
+            collection(db, 'orders'),
+            where('userId', '==', user.uid),
+            orderBy('createdAt', 'desc'),
+            limit(3)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const orders = snap.docs.map(d => d.data());
+            userOrdersContext = 'USER RECENT ORDERS:\n' + orders.map((o: any, i) => 
+              `${i+1}. Order ID: ${o.id || 'N/A'}, Total: ₹${o.totalAmount}, Status: ${o.status || 'Processing'}, Items: ${o.items?.map((it:any)=>it.title).join(', ')}`
+            ).join('\n');
+          } else {
+            userOrdersContext = 'USER RECENT ORDERS: [No recent orders found for this user]';
+          }
+        } catch (err) {
+          console.log('Error fetching orders for AI context', err);
+          userOrdersContext = 'USER RECENT ORDERS: [Error fetching orders]';
+        }
+      }
+
+      const res = await chatWithEasyBuyAI(history, selectedStateName, false, userOrdersContext);
 
       const aiMsg: ChatMessage = {
         id: `ai_${Date.now()}`,
@@ -148,8 +174,20 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
       setMessages((prev) => [...prev, aiMsg]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       
-      // Auto-Execution of cart actions has been intentionally removed per user request.
-      // The AI should only suggest items in the chat interface; the user will manually tap them to add to cart.
+      // Handle Auto Actions
+      if (res.action === 'ADD_TO_WISHLIST' && res.actionPayload && res.bundle) {
+        const itemToAdd = res.bundle.items.find(i => i.id === res.actionPayload) || res.bundle.items[0];
+        if (itemToAdd) {
+          toggleWishlist({
+            id: itemToAdd.id,
+            title: itemToAdd.name,
+            price: `₹${itemToAdd.price}`,
+            image: itemToAdd.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+          });
+          setCartToast(`💖 Saved ${itemToAdd.name} to Wishlist!`);
+          setTimeout(() => setCartToast(null), 4000);
+        }
+      }
 
     } catch (e) {
       console.log('[AIAssistantChat] Error:', e);
@@ -197,73 +235,52 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
     });
   };
 
-  const handleAddBundleToCart = (bundle: NonNullable<ChatMessage['bundle']>) => {
+  const handleAddSingleItemToCart = (it: any) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
-    bundle.items.forEach((it) => {
-      addToCart({
-        id: it.id || `chat_ing_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-        title: it.name,
-        price: `₹${it.price || 149}`,
-        image: it.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
-        quantity: 1,
-        unit: it.quantity,
-      });
+    addToCart({
+      id: it.id || `chat_ing_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      title: it.name,
+      price: `₹${it.price || 149}`,
+      image: it.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+      quantity: 1,
+      unit: it.quantity,
     });
 
-    setCartToast(`✨ Added all ${bundle.items.length} items from ${bundle.title} to Cart!`);
+    setCartToast(`✨ Added ${it.name} to Cart!`);
     setTimeout(() => setCartToast(null), 3000);
   };
 
-  if (!visible) return null;
-
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <BlurView intensity={30} tint={isDarkMode ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={StyleSheet.absoluteFill}>
+          <BlurView intensity={30} tint={isDarkMode ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        </View>
+      </TouchableWithoutFeedback>
+      
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        pointerEvents="box-none"
       >
         <View style={[styles.chatContainer, isDarkMode && styles.chatContainerDark]}>
           {/* ── HEADER ── */}
           <View style={[styles.header, isDarkMode && styles.headerDark]}>
-            <View style={styles.headerAvatarWrap}>
-              <View style={styles.headerAvatar}>
-                <Ionicons name="sparkles" size={18} color="#FFFFFF" />
-              </View>
-              <View style={styles.onlineDot} />
-            </View>
-
-            <View style={{ flex: 1, marginLeft: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.headerTitle, isDarkMode && { color: '#F8FAFC' }]}>
-                  EasyBuy AI Concierge
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.headerTitle, isDarkMode && { color: '#F8FAFC' }]}>
+                EasyBuy AI
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                <View style={styles.headerDot} />
+                <Text style={[styles.headerSub, isDarkMode && { color: '#94A3B8' }]}>
+                  ACTIVE
                 </Text>
               </View>
-              <Text style={[styles.headerSub, isDarkMode && { color: '#94A3B8' }]}>
-                {selectedStateName ? `Active in ${selectedStateName}` : 'Always Online • Ask anything'}
-              </Text>
             </View>
 
-            <TouchableOpacity
-              onPress={() => {
-                setMessages([
-                  {
-                    id: 'welcome_reset',
-                    sender: 'assistant',
-                    text: 'Chat reset ho gaya! Main aapki kya madad karoon?',
-                    timestamp: 'Just now',
-                  },
-                ]);
-              }}
-              style={styles.headerIconBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="refresh-outline" size={18} color={isDarkMode ? '#94A3B8' : '#64748B'} />
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={onClose} style={styles.headerIconBtn} activeOpacity={0.7}>
-              <Ionicons name="close" size={20} color={isDarkMode ? '#F8FAFC' : '#0F172A'} />
+            <TouchableOpacity onPress={onClose} style={styles.headerProfileIcon} activeOpacity={0.7}>
+              <Ionicons name="close" size={18} color="#FFF" />
             </TouchableOpacity>
           </View>
 
@@ -293,7 +310,7 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
               >
                 {msg.sender === 'assistant' && (
                   <View style={styles.aiSmallAvatar}>
-                    <Ionicons name="sparkles" size={12} color="#FFFFFF" />
+                    <Ionicons name="hardware-chip" size={14} color="#FFFFFF" />
                   </View>
                 )}
 
@@ -358,22 +375,16 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
                                 </Text>
                               </View>
                               <Text style={styles.bundleItemPrice}>₹{it.price}</Text>
+                              <TouchableOpacity 
+                                style={{ backgroundColor: '#10B981', padding: 6, borderRadius: 20, marginLeft: 10 }}
+                                onPress={() => handleAddSingleItemToCart(it)}
+                                activeOpacity={0.7}
+                              >
+                                <Ionicons name="add" size={16} color="#FFF" />
+                              </TouchableOpacity>
                             </View>
                           ))}
                         </View>
-
-                        {/* 1-Tap Add Bundle Button */}
-                        <TouchableOpacity
-                          style={styles.addBundleBtn}
-                          onPress={() => handleAddBundleToCart(msg.bundle!)}
-                          activeOpacity={0.88}
-                        >
-                          <Ionicons name="flash" size={15} color="#FFFFFF" />
-                          <Text style={styles.addBundleBtnTxt}>
-                            ⚡ Add All {msg.bundle.items.length} Items to Cart • ₹
-                            {msg.bundle.totalPrice || 299}
-                          </Text>
-                        </TouchableOpacity>
                       </View>
                     )}
                   </View>
@@ -395,7 +406,7 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
             {isTyping && (
               <View style={[styles.messageWrapper, styles.aiMsgWrap]}>
                 <View style={styles.aiSmallAvatar}>
-                  <Ionicons name="sparkles" size={12} color="#FFFFFF" />
+                  <Ionicons name="hardware-chip" size={14} color="#FFFFFF" />
                 </View>
                 <View style={[styles.messageBubble, isDarkMode ? styles.aiBubbleDark : styles.aiBubble, { paddingVertical: 10, paddingHorizontal: 16 }]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -409,64 +420,60 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
             )}
           </ScrollView>
 
-          {/* ── STARTER SUGGESTION CHIPS ── */}
-          <View style={styles.starterChipsWrap}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}>
-              {STARTER_PROMPTS.map((prompt, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={[styles.starterChip, isDarkMode && styles.starterChipDark]}
-                  onPress={() => sendMessage(prompt)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.starterChipTxt, isDarkMode && { color: '#CBD5E1' }]}>
-                    {prompt}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
+          {/* ── SUGGESTED ACTIONS ── */}
+          {messages.length === 1 && !isTyping && (
+            <View style={styles.starterChipsWrap}>
+              <Text style={styles.suggestedTitle}>SUGGESTED ACTIONS</Text>
+              <View style={styles.suggestedList}>
+                {SUGGESTED_ACTIONS.map((action, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[styles.starterChip, isDarkMode && styles.starterChipDark]}
+                    onPress={() => sendMessage(action.text)}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name={action.icon as any} size={16} color="#10B981" />
+                    <Text style={[styles.starterChipTxt, isDarkMode && { color: '#CBD5E1' }]}>
+                      {action.text}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* ── INPUT BAR ── */}
-          <View style={[styles.inputBar, isDarkMode && styles.inputBarDark]}>
-            <TouchableOpacity
-              style={[
-                styles.voiceMicBtn,
-                isListening && { backgroundColor: '#EF4444' },
-              ]}
-              onPress={toggleVoiceInput}
-              activeOpacity={0.8}
-            >
-              <Animated.View style={{ transform: [{ scale: voiceBreatheAnim }] }}>
+          <View style={styles.bottomSection}>
+            <View style={[styles.inputBox, isDarkMode && styles.inputBoxDark]}>
+              <TouchableOpacity onPress={toggleVoiceInput} activeOpacity={0.8} style={{ padding: 6 }}>
                 <Ionicons
-                  name={isListening ? 'stop' : 'mic'}
+                  name={isListening ? 'stop' : 'mic-outline'}
                   size={20}
-                  color="#FFFFFF"
+                  color={isListening ? '#EF4444' : '#64748B'}
                 />
-              </Animated.View>
-            </TouchableOpacity>
+              </TouchableOpacity>
 
-            <TextInput
-              style={[styles.textInput, isDarkMode && styles.textInputDark]}
-              placeholder={isListening ? 'Listening… speak now 🎙️' : 'Ask anything in Hindi or English…'}
-              placeholderTextColor={isListening ? '#10B981' : isDarkMode ? '#64748B' : '#94A3B8'}
-              value={inputText}
-              onChangeText={setInputText}
-              onSubmitEditing={() => sendMessage()}
-              returnKeyType="send"
-            />
+              <TextInput
+                style={[styles.textInput, isDarkMode && styles.textInputDark]}
+                placeholder={isListening ? 'Listening...' : 'Type your request here...'}
+                placeholderTextColor="#94A3B8"
+                value={inputText}
+                onChangeText={setInputText}
+                onSubmitEditing={() => sendMessage()}
+                returnKeyType="send"
+              />
 
-            <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                inputText.trim().length === 0 && { opacity: 0.4 },
-              ]}
-              onPress={() => sendMessage()}
-              disabled={inputText.trim().length === 0 || isTyping}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="arrow-up" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={{ padding: 6, opacity: inputText.trim().length === 0 ? 0.4 : 1 }}
+                onPress={() => sendMessage()}
+                disabled={inputText.trim().length === 0 || isTyping}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="send-outline" size={18} color="#0F172A" />
+              </TouchableOpacity>
+            </View>
+            
+            <Text style={styles.footerText}>Powered by EasyBuy AI</Text>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -493,56 +500,39 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
   headerDark: {
     borderBottomColor: '#1E293B',
   },
-  headerAvatarWrap: {
-    position: 'relative',
-  },
-  headerAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#10B981',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  onlineDot: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#22C55E',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#0F172A',
   },
+  headerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 6,
+  },
   headerSub: {
-    fontSize: 11.5,
-    color: '#64748B',
-    marginTop: 1,
-  },
-  aiPill: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  aiPillTxt: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '600',
     color: '#10B981',
+    letterSpacing: 0.5,
+  },
+  headerProfileIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerIconBtn: {
     width: 34,
@@ -600,23 +590,20 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   messageBubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   userBubble: {
     backgroundColor: '#10B981',
-    borderBottomRightRadius: 4,
   },
   aiBubble: {
     backgroundColor: '#F8FAFC',
-    borderBottomLeftRadius: 4,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#F1F5F9',
   },
   aiBubbleDark: {
     backgroundColor: '#1E293B',
-    borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: '#334155',
   },
@@ -654,7 +641,7 @@ const styles = StyleSheet.create({
   },
   bundleCardTitle: {
     fontSize: 13.5,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#0F172A',
   },
   bundleCardTagline: {
@@ -689,7 +676,7 @@ const styles = StyleSheet.create({
   },
   bundleItemPrice: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#10B981',
     marginLeft: 6,
   },
@@ -705,76 +692,75 @@ const styles = StyleSheet.create({
   },
   addBundleBtnTxt: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   starterChipsWrap: {
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  suggestedTitle: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  suggestedList: {
+    alignItems: 'flex-start',
+    gap: 10,
   },
   starterChip: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    gap: 8,
   },
   starterChipDark: {
     backgroundColor: '#1E293B',
     borderColor: '#334155',
   },
   starterChipTxt: {
-    fontSize: 12,
-    color: '#334155',
-    fontWeight: '600',
+    fontSize: 13,
+    color: '#0F172A',
+    fontWeight: '500',
   },
-  inputBar: {
+  bottomSection: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 30 : 20,
+    backgroundColor: '#FFFFFF',
+  },
+  inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-    gap: 8,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  inputBarDark: {
-    backgroundColor: '#0F172A',
-    borderTopColor: '#1E293B',
-  },
-  voiceMicBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#10B981',
-    alignItems: 'center',
-    justifyContent: 'center',
+  inputBoxDark: {
+    backgroundColor: '#1E293B',
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
     fontSize: 14,
     color: '#0F172A',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    paddingHorizontal: 8,
   },
   textInputDark: {
-    backgroundColor: '#1E293B',
-    borderColor: '#334155',
     color: '#F8FAFC',
   },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#10B981',
-    alignItems: 'center',
-    justifyContent: 'center',
+  footerText: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 12,
   },
 });
 

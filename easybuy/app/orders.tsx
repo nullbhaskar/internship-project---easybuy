@@ -18,6 +18,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { AppError, ErrorCode, handleError } from '../utils/AppError';
+import { EmptyStateView } from '../components/EmptyStateView';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -183,6 +187,7 @@ export default function OrdersScreen() {
       setOrders((prev) => prev.filter((o) => o.id !== orderId));
     } catch (e) {
       console.error('Error deleting order:', e);
+      handleError(new AppError(ErrorCode.ORDER_ERROR, 'Failed to delete order.'));
     }
   };
 
@@ -201,6 +206,7 @@ export default function OrdersScreen() {
         }
       } catch (e) {
         console.log('Firestore cancellation update error:', e);
+        handleError(new AppError(ErrorCode.ORDER_ERROR, 'Failed to cancel the order on the server.'));
       }
 
       // Update local state so UI instantly reflects cancellation
@@ -447,27 +453,14 @@ export default function OrdersScreen() {
 
         {/* ══ ORDERS LIST ══════════════════════════════════ */}
         {filteredOrders.length === 0 ? (
-          <View style={[S.emptyOrdersCard, isDark && S.emptyOrdersCardDark]}>
-            <FloatLoop distance={8}>
-              <Text style={{ fontSize: 44, marginBottom: 8 }}>🛍️</Text>
-            </FloatLoop>
-            <Text style={[S.emptyOrdersTitle, isDark && S.textLight]}>
-              No Orders Placed Yet
-            </Text>
-            <Text style={[S.emptyOrdersSub, isDark && { color: '#94A3B8' }]}>
-              When you place an order, live status tracking and step progress will appear here!
-            </Text>
-            <TouchableOpacity
-              style={S.shopNowBtn}
-              onPress={() => {
-                Haptics.selectionAsync().catch(() => {});
-                router.push('/home');
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={S.shopNowBtnText}>Start Shopping →</Text>
-            </TouchableOpacity>
-          </View>
+          <EmptyStateView
+            isDark={isDark}
+            iconName="bag-outline"
+            title="No Orders Placed Yet"
+            subtitle="When you place an order, live status tracking and step progress will appear here!"
+            actionText="Start Shopping →"
+            onAction={() => router.push('/home')}
+          />
         ) : (
           filteredOrders.map((order, orderIdx) => {
             const isProcessing = order.status === 'Processing' || order.status === 'Order Placed' || order.status === 'Confirmed' || order.status === 'Packed';

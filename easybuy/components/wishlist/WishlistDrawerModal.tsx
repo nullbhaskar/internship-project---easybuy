@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import { useWishlist } from '../../context/WishlistContext';
 import { useCart } from '../../context/CartContext';
 import { useEasyBuyTheme } from '../../constants/ThemeContext';
+import { EmptyStateView } from '../EmptyStateView';
 
 const { height } = Dimensions.get('window');
 
@@ -94,27 +95,17 @@ export const WishlistDrawerModal: React.FC = () => {
 
           {/* Wishlist Items List */}
           {wishlistItems.length === 0 ? (
-            <View style={styles.emptyStateBox}>
-              <View style={styles.emptyIconCircle}>
-                <Ionicons name="heart-outline" size={36} color="#E11D48" />
-              </View>
-              <Text style={[styles.emptyTitle, isDarkMode && { color: '#F8FAFC' }]}>
-                Your wishlist is empty
-              </Text>
-              <Text style={[styles.emptySub, isDarkMode && { color: '#94A3B8' }]}>
-                Explore items & save your favorites to view them anytime.
-              </Text>
-              <TouchableOpacity
-                style={styles.exploreBtn}
-                onPress={() => {
-                  Haptics.selectionAsync().catch(() => {});
-                  closeWishlist();
-                }}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.exploreBtnTxt}>Explore Catalog →</Text>
-              </TouchableOpacity>
-            </View>
+            <EmptyStateView
+              isDark={isDarkMode}
+              iconName="heart-outline"
+              title="Your wishlist is empty"
+              subtitle="Explore items & save your favorites to view them anytime."
+              actionText="Explore Catalog →"
+              onAction={() => {
+                Haptics.selectionAsync().catch(() => {});
+                closeWishlist();
+              }}
+            />
           ) : (
             <>
               <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1, marginVertical: 8 }}>

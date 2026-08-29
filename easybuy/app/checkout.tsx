@@ -14,7 +14,9 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { Link, useRouter, useLocalSearchParams } from 'expo-router';
+import { AppError, ErrorCode, handleError } from '../utils/AppError';
+import { ValidationEngine } from '../utils/ValidationEngine';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -187,7 +189,7 @@ export default function CheckoutScreen() {
     }
 
     if (cartItems.length === 0) {
-      Alert.alert('Empty Cart', 'Please add items to your cart before checking out.');
+      handleError(new AppError(ErrorCode.CART_ERROR, 'Please add items to your cart before checking out.'));
       return;
     }
     
@@ -195,6 +197,9 @@ export default function CheckoutScreen() {
     setIsSubmitting(true);
 
     try {
+      // VALIDATE ENTIRE CART AGAINST SOURCE OF TRUTH (PRICE, STOCK, EXISTENCE)
+      await ValidationEngine.validateCartItems(cartItems);
+
       const newOrderRef = doc(collection(db, 'orders'));
       const orderId = `#EB-${Math.floor(100000 + Math.random() * 900000)}`;
       const activeUser: any = user || auth.currentUser;
@@ -256,7 +261,7 @@ export default function CheckoutScreen() {
     } catch (e) {
       console.error('Error placing order:', e);
       setIsSubmitting(false);
-      Alert.alert('Error', 'Could not complete transaction. Please try again.');
+      handleError(new AppError(ErrorCode.ORDER_ERROR, 'Could not complete transaction. Please try again.'));
     }
   };
 

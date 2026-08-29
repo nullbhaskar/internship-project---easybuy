@@ -4,6 +4,8 @@ import * as Haptics from 'expo-haptics';
 import { auth, db } from '../services/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
+import { AppError, ErrorCode, handleError } from '../utils/AppError';
+import { ValidationEngine } from '../utils/ValidationEngine';
 
 export interface CartItem {
   id: string;
@@ -19,7 +21,7 @@ export interface CartItem {
 
 interface CartContextType {
   cartItems: CartItem[];
-  addToCart: (item: Omit<CartItem, 'quantity'> & { quantity?: number }) => void;
+  addToCart: (item: Omit<CartItem, 'quantity'> & { quantity?: number }) => Promise<void> | void;
   removeFromCart: (id: string) => void;
   updateQuantity: (id: string, delta: number) => void;
   clearCart: () => void;
@@ -73,6 +75,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (e) {
         console.log('Error loading cart:', e);
+        handleError(new AppError(ErrorCode.CART_ERROR, 'Failed to load your cart items.'));
       }
     }
     loadCartData();
@@ -90,16 +93,29 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (e) {
       console.log('Error saving cart:', e);
+      handleError(new AppError(ErrorCode.CART_ERROR, 'Failed to save cart changes.'));
     }
   };
 
-  const addToCart = (item: Omit<CartItem, 'quantity'> & { quantity?: number }) => {
+  const addToCart = async (item: Omit<CartItem, 'quantity'> & { quantity?: number }) => {
     if (!requireAuth('add items to your cart')) {
       return;
     }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     const addQty = item.quantity || 1;
+    
+    // Check existing quantity in cart
+    const existingItem = cartItems.find(i => i.id === item.id);
+    const totalRequestedQty = (existingItem?.quantity || 0) + addQty;
+
+    // VALIDATE AGAINST SOURCE OF TRUTH BEFORE ADDING
+    const validation = await ValidationEngine.validateProductForPurchase(item.id, totalRequestedQty);
+    if (!validation.isValid && validation.error) {
+      handleError(validation.error);
+      return;
+    }
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
     setCartItems((prev) => {
       const existingIdx = prev.findIndex((i) => i.id === item.id);
@@ -109,7 +125,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           idx === existingIdx ? { ...i, quantity: i.quantity + addQty } : i
         );
       } else {
-        updated = [...prev, { ...item, quantity: addQty }];
+        // Use verified price from DB if available
+        const verifiedPrice = validation.product?.price || item.price;
+        updated = [...prev, { ...item, price: verifiedPrice, quantity: addQty }];
       }
       persistCart(updated);
       return updated;

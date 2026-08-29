@@ -17,17 +17,9 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-} from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
+import { sendPushNotification } from '../utils/notifications';
 import { generateFullIndianCatalog, INDIAN_STATES_AND_UTS, StateItem } from '../constants/catalogGenerator';
 import { registerProduct } from '../constants/globalProductRegistry';
 
@@ -44,12 +36,12 @@ import {
 import { C, R, S } from '../components/admin/adminTheme';
 
 // Modern Admin Components
-import { AdminDashboard } from '../components/admin/replica/ReplicaDashboard';
-import { AdminAnalytics } from '../components/admin/replica/ReplicaAnalytics';
-import { AdminOrders }    from '../components/admin/replica/ReplicaOrders';
-import { AdminActivity }  from '../components/admin/replica/ReplicaActivity';
-import { AdminBottomNav, AdminTab } from '../components/admin/replica/ReplicaBottomNav';
-import { ADMIN_THEME }    from '../components/admin/replica/ReplicaTheme';
+import { AdminDashboard } from '../components/admin/AdminDashboard';
+import { AdminAIControl } from '../components/admin/AdminAIControl';
+import { AdminInventory } from '../components/admin/AdminInventory';
+import { AdminProductsDir } from '../components/admin/AdminProductsDir';
+import { AdminBottomNav } from '../components/admin/SidebarMenu';
+import { AdminOrders } from '../components/admin/AdminOrders';
 
 // Components
 import { AdminHeader }        from '../components/admin/AdminHeader';
@@ -113,7 +105,7 @@ export default function AdminScreen() {
   const router = useRouter();
 
   // ── State ─────────────────────────────────────────────────────
-  const [activeSection,     setActiveSection]     = useState<any>('home');
+  const [activeSection,     setActiveSection]     = useState<AdminSection>('dashboard');
   const [checkingAdmin,     setCheckingAdmin]     = useState(true);
   const [isAdmin,           setIsAdmin]           = useState(false);
   const [isFirebaseOk,      setIsFirebaseOk]      = useState(true);
@@ -199,11 +191,15 @@ export default function AdminScreen() {
       let items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
 
       if (items.length === 0) {
-        items = generateFullIndianCatalog().map(p => ({
-          ...p,
-          priceNumber: typeof p.price === 'number' ? p.price : (parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || 0),
-          id: p.id,
-        }));
+        try {
+          items = generateFullIndianCatalog().map((p: any) => ({
+            ...p,
+            priceNumber: typeof p.price === 'number' ? p.price : (parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || 0),
+            id: p.id || Math.random().toString(),
+          }));
+        } catch (e) {
+          console.warn('Failed to generate catalog:', e);
+        }
       }
 
       setProducts(items);
@@ -212,13 +208,17 @@ export default function AdminScreen() {
       console.warn('loadProducts error:', err);
       setIsFirebaseOk(false);
       
-      // Fallback if network drops completely
-      const fallbackItems = generateFullIndianCatalog().map(p => ({
-        ...p,
-        priceNumber: typeof p.price === 'number' ? p.price : (parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || 0),
-        id: p.id,
-      }));
-      setProducts(fallbackItems);
+      try {
+        const fallbackItems = generateFullIndianCatalog().map((p: any) => ({
+          ...p,
+          priceNumber: typeof p.price === 'number' ? p.price : (parseFloat(String(p.price).replace(/[^0-9.]/g, '')) || 0),
+          id: p.id || Math.random().toString(),
+        }));
+        setProducts(fallbackItems);
+      } catch(fallbackErr) {
+        console.warn('Fallback generation failed:', fallbackErr);
+        setProducts([]);
+      }
     } finally {
       setLoadingProducts(false);
     }
@@ -325,27 +325,53 @@ export default function AdminScreen() {
       let stepIndex = 0;
       let formattedStatus = 'Processing';
 
-      if (status === 'confirmed') { stepIndex = 1; formattedStatus = 'Confirmed'; }
-      else if (status === 'packed') { stepIndex = 2; formattedStatus = 'Packed'; }
-      else if (status === 'shipped') { stepIndex = 3; formattedStatus = 'Shipped'; }
-      else if (status === 'delivered') { stepIndex = 4; formattedStatus = 'Delivered'; }
-      else if (status === 'cancelled') { stepIndex = 0; formattedStatus = 'Cancelled'; }
+      if (status === 'confirmed' || status === 'Confirmed') { stepIndex = 1; formattedStatus = 'Confirmed'; }
+      else if (status === 'packed' || status === 'Packed') { stepIndex = 2; formattedStatus = 'Packed'; }
+      else if (status === 'shipped' || status === 'Shipped') { stepIndex = 3; formattedStatus = 'Shipped'; }
+      else if (status === 'delivered' || status === 'Delivered') { stepIndex = 4; formattedStatus = 'Delivered'; }
+      else if (status === 'cancelled' || status === 'Cancelled') { stepIndex = 0; formattedStatus = 'Cancelled'; }
       else { stepIndex = 0; formattedStatus = 'Processing'; }
 
+      showToast(`Updating order status to ${formattedStatus}...`);
       await updateDoc(doc(db, 'orders', orderId), {
         status: formattedStatus,
         currentStepIndex: stepIndex,
         updatedAt: new Date().toISOString(),
       });
 
+      const order = orders.find(o => o.id === orderId);
+      if (order && order.userId) {
+        // Fetch user's push token
+        const userDoc = await getDoc(doc(db, 'users', order.userId));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          if (userData.pushToken) {
+            let title = '';
+            let body = '';
+            
+            if (formattedStatus === 'Shipped') {
+              title = 'Package Out for Delivery! 🚚';
+              body = `Great news! Your order ${order.orderId || ''} is out for delivery. Keep an eye out for it today!`;
+            } else if (formattedStatus === 'Delivered') {
+              title = 'Order Delivered! 🎉';
+              body = `Your order ${order.orderId || ''} has been successfully delivered. Enjoy your purchase from EasyBuy!`;
+            }
+
+            if (title) {
+              await sendPushNotification(userData.pushToken, title, body);
+            }
+          }
+        }
+      }
+
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: formattedStatus as any, currentStepIndex: stepIndex } : o));
-      showToast(`Order updated to ${formattedStatus}!`);
+      showToast('Order updated & notification sent!', 'success');
     } catch (err: any) {
+      console.error(err);
       showToast(err?.message || 'Could not update order.', 'error');
     }
   };
 
-  // ── Logout ────────────────────────────────────────────────────
   const handleLogout = async () => {
     await AsyncStorage.removeItem('isAdmin');
     await auth.signOut().catch(() => {});
@@ -636,155 +662,86 @@ export default function AdminScreen() {
 
       {/* ── Body ── */}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
-          style={styles.body}
-          contentContainerStyle={styles.bodyContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={C.primary}
-              colors={[C.primary]}
-            />
-          }
-        >
-          {/* ══════════════ 1. DASHBOARD / HOME ══════════════ */}
-          {(activeSection === 'home' || activeSection === 'dashboard') && (
+        <View style={styles.body}>
+          {/* ══════════════ 1. DASHBOARD ══════════════ */}
+          {activeSection === 'dashboard' && (
             <AdminDashboard
-              productsCount={products.length}
-              ordersCount={orders.length}
-              clientsCount={uniqueClients}
-              totalRevenue={totalRevenue}
-              orders={orders}
-              onManageProducts={() => setActiveSection('products')}
-              weeklyRevenueData={weeklyRevenueData}
-            />
-          )}
-
-          {/* ══════════════ 2. ANALYTICS ══════════════ */}
-          {activeSection === 'analytics' && (
-            <AdminAnalytics
-              totalSales={totalRevenue}
-              averageSales={avgOrderValue}
-              trendingItems={topProducts}
-              ordersData={weeklyOrdersData}
-            />
-          )}
-
-          {/* ══════════════ 3. ORDERS ══════════════ */}
-          {activeSection === 'orders' && (
-            <AdminOrders
-              orders={orders}
-              onUpdateStatus={handleUpdateOrderStatus}
-            />
-          )}
-
-          {/* ══════════════ 4. ACTIVITY ══════════════ */}
-          {activeSection === 'activity' && (
-            <AdminActivity
-              orders={orders}
               products={products}
-              onOpenSettings={() => setActiveSection('products')}
+              orders={orders}
+              categories={categories}
+              onNavigate={setActiveSection}
+              onAddProduct={() => {
+                setSelectedProduct(null);
+                setShowProductForm(true);
+              }}
             />
           )}
 
-          {/* ══════════════ 5. PRODUCTS / CATALOG ══════════════ */}
+          {/* ══════════════ 2. AI CONTROL ══════════════ */}
+          {activeSection === 'aicontrol' && (
+            <AdminAIControl products={products} orders={orders} />
+          )}
+
+          {/* ══════════════ 3. STOCK / INVENTORY ══════════════ */}
+          {activeSection === 'stock' && (
+            <AdminInventory 
+              products={products} 
+              onEditProduct={(p) => {
+                setSelectedProduct(p);
+                setShowProductForm(true);
+              }}
+              onDeleteProduct={(p) => {
+                setDeleteProduct(p);
+                setConfirmDelete(true);
+              }}
+            />
+          )}
+
+          {/* ══════════════ 4. PRODUCTS ══════════════ */}
           {activeSection === 'products' && (
-            <View style={{ paddingHorizontal: 4 }}>
-              {/* Section Header */}
-              <View style={styles.secHeader}>
-                <View>
-                  <Text style={styles.pageTitle}>Products Catalog</Text>
-                  <Text style={styles.pageSub}>
-                    {filteredProducts.length} of {stateProducts.length} products {selectedAdminState ? `in ${selectedAdminState.name}` : '(All India)'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.addBtn}
-                  onPress={() => { setSelectedProduct(null); setShowProductForm(true); }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="add" size={18} color="#fff" />
-                  <Text style={styles.addBtnText}>Add New</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Search Bar and Filter */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <View style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}>
-                  <Ionicons name="search" size={18} color="#94A3B8" />
-                  <TextInput
-                    style={styles.searchInput}
-                    value={productSearch}
-                    onChangeText={setProductSearch}
-                    placeholder="Search products..."
-                    placeholderTextColor="#94A3B8"
-                  />
-                  {productSearch.length > 0 && (
-                    <TouchableOpacity onPress={() => setProductSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Ionicons name="close-circle" size={16} color="#94A3B8" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <TouchableOpacity style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }}>
-                  <Ionicons name="options" size={20} color="#475569" />
-                </TouchableOpacity>
-              </View>
-
-            {/* Segmented Control Filters */}
-            <View style={{ flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 12, padding: 4, marginBottom: 16 }}>
-              <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: quickBuyTab === 'all' && !productSearch ? '#FFFFFF' : 'transparent', shadowColor: quickBuyTab === 'all' && !productSearch ? '#000' : 'transparent', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: quickBuyTab === 'all' && !productSearch ? 2 : 0 }}
-                onPress={() => { setQuickBuyTab('all'); setProductSearch(''); }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '600', color: quickBuyTab === 'all' && !productSearch ? '#0F172A' : '#64748B' }}>All</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: quickBuyTab === 'quick' ? '#FFFFFF' : 'transparent', shadowColor: quickBuyTab === 'quick' ? '#000' : 'transparent', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: quickBuyTab === 'quick' ? 2 : 0 }}
-                onPress={() => setQuickBuyTab(quickBuyTab === 'quick' ? 'all' : 'quick')}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '600', color: quickBuyTab === 'quick' ? '#0F172A' : '#64748B' }}>QuickBuy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: quickBuyTab === 'regular' ? '#FFFFFF' : 'transparent', shadowColor: quickBuyTab === 'regular' ? '#000' : 'transparent', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: quickBuyTab === 'regular' ? 2 : 0 }}
-                onPress={() => setQuickBuyTab(quickBuyTab === 'regular' ? 'all' : 'regular')}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '600', color: quickBuyTab === 'regular' ? '#0F172A' : '#64748B' }}>Regular</Text>
-              </TouchableOpacity>
-            </View>
-
-              {/* Product Form */}
-              {showProductForm && (
-                <ProductForm
-                  categories={categories}
-                  product={selectedProduct}
-                  loading={panelLoading}
-                  onSave={handleSaveProduct}
-                  onCancel={() => { setShowProductForm(false); setSelectedProduct(null); }}
-                />
-              )}
-
-              {/* Product List */}
-              <ProductTable
-                products={filteredProducts}
-                loading={loadingProducts}
-                onEdit={p => { setSelectedProduct(p); setShowProductForm(true); }}
-                onDelete={p => { setDeleteProduct(p); setConfirmDelete(true); }}
+            <View style={{ flex: 1 }}>
+              <AdminProductsDir 
+                products={products}
+                onAddProduct={() => {
+                  setSelectedProduct(null);
+                  setShowProductForm(true);
+                }}
+                onEditProduct={(p) => {
+                  setSelectedProduct(p);
+                  setShowProductForm(true);
+                }}
+                onDeleteProduct={(p) => {
+                  setDeleteProduct(p);
+                  setConfirmDelete(true);
+                }}
               />
+              
+              {showProductForm && (
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, backgroundColor: '#FFFFFF' }}>
+                  <ProductForm
+                    categories={categories}
+                    product={selectedProduct}
+                    loading={panelLoading}
+                    onSave={handleSaveProduct}
+                    onCancel={() => { setShowProductForm(false); setSelectedProduct(null); }}
+                  />
+                </View>
+              )}
             </View>
           )}
 
-                    <View style={{ alignItems: 'center', paddingVertical: 32, opacity: 0.5 }}>
-              <Ionicons name="archive-outline" size={24} color="#64748B" style={{ marginBottom: 8 }} />
-              <Text style={{ fontSize: 12, color: '#64748B' }}>End of results</Text>
-            </View>
-          </ScrollView>
+          {/* ══════════════ 5. ORDERS ══════════════ */}
+          {activeSection === 'orders' && (
+            <AdminOrders orders={orders} onUpdateStatus={handleUpdateOrderStatus} />
+          )}
+        </View>
       </KeyboardAvoidingView>
 
       {/* ── Bottom Nav ── */}
-      <AdminBottomNav activeTab={activeSection as any} onTabChange={(tab) => setActiveSection(tab as any)} />
+      <AdminBottomNav
+        active={activeSection}
+        onSelect={setActiveSection}
+      />
 
       {/* ── Delete Confirm Dialog ── */}
       <DeleteConfirmDialog

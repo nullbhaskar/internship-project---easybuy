@@ -30,7 +30,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { auth, db } from '../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { ExperimentalNavigation } from '../components/navigation/ExperimentalNavigation';
 import { getDynamicWelcomeMessage } from '../constants/greetings';
 import { getRandomOpener } from '../constants/openers';
@@ -132,10 +132,7 @@ const DAILY_QUOTES = [
   "You deserve something nice.",
 ];
 
-import { generateFullIndianCatalog } from '../constants/mockDataGenerator';
 import { styles } from './home.styles';
-
-const catalog = generateFullIndianCatalog();
 
 // ─── QUICK COMMERCE (QUICKBUY 10-20 MIN DARK CAPSULE) ───
 const QUICKBUY_GRID_ITEMS = [
@@ -451,32 +448,11 @@ const FRUIT_SALAD_TAB_PRODUCTS: Record<string, any[]> = {
   ],
 };
 
-// ─── RECOMMENDED FOR YOU PRODUCTS ───
-const RECOMMENDED_PRODUCTS = catalog.slice(0, 40).map((p, idx) => ({
-  id: p.id,
-  title: p.name,
-  price: p.price,
-  originalPrice: p.originalPrice,
-  discount: p.discountPct,
-  tag: p.stateName,
-  rating: p.rating,
-  image: getValidImageUrl(p.thumbnail || (p.images && p.images[0]), idx),
-}));
-
 // ─── CURATED LIFESTYLE COLLECTIONS ───
 const CURATED_COLLECTIONS = [
   { id: 'c1', title: 'State Heritage Sweets & Spices', tag: 'Curated', priceText: 'From ₹129', bg: '#FFF3E0', image: 'https://images.unsplash.com/photo-1603006905003-be475563bc59?w=400' },
   { id: 'c2', title: 'Organic Farm Fresh Veggies', tag: 'Farm Harvest', priceText: 'From ₹35', bg: '#DCFCE7', image: 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=400' },
 ];
-
-// ─── RECENTLY VIEWED PRODUCTS ───
-const RECENTLY_VIEWED = catalog.slice(0, 4).map((p, idx) => ({
-  id: p.id,
-  title: p.name,
-  tag: p.brand,
-  price: p.price,
-  image: getValidImageUrl(p.thumbnail || (p.images && p.images[0]), idx + 3),
-}));
 
 // ─── TACTILE SPRING PRESS CARD COMPONENT ───
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -1516,83 +1492,89 @@ const getLocationSensitiveProducts = (userCity: string, stateId: string, stateNa
 };
 
 // ─── DYNAMIC EDITORIAL JOURNAL GENERATOR (LOCATION & PRODUCT MATCHED) ───
-const getDynamicEditorialSection = (cityName: string, products: any[]) => {
+const getDynamicEditorialSection = (cityName: string, products: any[], adminBanners?: any) => {
   const dayIndex = new Date().getDay(); // 0 to 6 daily rotation
-  const issueNumbers = ['ISSUE N° 04 — PROVENANCE', 'ISSUE N° 05 — HERITAGE', 'ISSUE N° 06 — CRAFT MASTERY', 'ISSUE N° 07 — REGIONAL EDITION', 'ISSUE N° 08 — ARTISANAL EDIT'];
+  const issueNumbers = ['ISSUE N° 04 — LOCAL CURATION', 'ISSUE N° 05 — THE EDIT', 'ISSUE N° 06 — CITY FINDS', 'ISSUE N° 07 — REGIONAL EDITION', 'ISSUE N° 08 — TRENDING NOW'];
   const activeIssue = issueNumbers[dayIndex % issueNumbers.length];
 
-  const fashionProducts = products.filter(p => p.category === 'ETHNIC FASHION' || p.category === 'FOOTWEAR' || p.category === 'ACCESSORIES');
-  const foodGourmetProducts = products.filter(p => p.category === 'QUICKBUY' || p.title.toLowerCase().includes('coffee') || p.title.toLowerCase().includes('tea') || p.title.toLowerCase().includes('sweet') || p.title.toLowerCase().includes('makhana') || p.title.toLowerCase().includes('lassi'));
-  const beautyProducts = products.filter(p => p.category === 'BEAUTY' || p.title.toLowerCase().includes('oil') || p.title.toLowerCase().includes('toner') || p.title.toLowerCase().includes('face') || p.title.toLowerCase().includes('lip'));
+  // 1. Shuffle products deterministically based on the day so it changes daily but is stable within the same day
+  const seed = new Date().getDate();
+  const safeProducts = products && products.length > 0 ? products : [{}]; // fallback empty object just in case
+  
+  const shuffledProducts = [...safeProducts].sort((a, b) => {
+    return ((a.name?.length || 0) * seed) % 3 - ((b.name?.length || 0) * seed) % 3;
+  });
+
+  // 2. Pick 3 distinct products to serve as the "Anchors" for our stories
+  const p1 = shuffledProducts[0] || safeProducts[0];
+  const p2 = shuffledProducts[1] || safeProducts[0];
+  const p3 = shuffledProducts[2] || safeProducts[0];
+
+  const getCat = (p: any) => (p?.categoryName || p?.categoryId || 'GENERAL').toUpperCase().replace('_', ' ');
+  // Use a fallback image ONLY if the specific product doesn't have any image at all in Firebase
+  const getImg = (p: any) => p?.thumbnail || p?.image || 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=900&auto=format&fit=crop&q=80';
+
+  const heroCat = getCat(p1);
+  const card1Cat = getCat(p2);
+  const card2Cat = getCat(p3);
+
+  // Group products by these categories for the "Read Story" page
+  const heroProducts = safeProducts.filter(p => getCat(p) === heroCat);
+  const card1Products = safeProducts.filter(p => getCat(p) === card1Cat);
+  const card2Products = safeProducts.filter(p => getCat(p) === card2Cat);
+
+  const formatTitle = (cat: string) => cat.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 
   const heroStory = {
     issue: activeIssue,
-    title: `Artisanal Handlooms & Craft Heritage of ${cityName}`,
-    subtitle: `Curated small-batch creations directly from master weavers & craftsmen in ${cityName}.`,
-    author: 'EasyBuy Artisanal Desk',
+    title: `The ${formatTitle(heroCat)} Edit of ${cityName}`,
+    subtitle: `Curated top-tier ${heroCat.toLowerCase()} selections available locally in ${cityName}.`,
+    author: 'EasyBuy Local Desk',
     readTime: '4 min read',
-    coverImage: fashionProducts[dayIndex % (fashionProducts.length || 1)]?.image || 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=900&auto=format&fit=crop&q=80',
+    coverImage: adminBanners?.editorialHero || getImg(p1),
     paragraphs: [
-      `In an era dominated by fast fashion, there is a quiet revolution happening in master weavers' looms across ${cityName}. Artisans are returning to traditional methods—hand-spinning natural threads and slowly weaving timeless ethnic wear with bare hands.`,
-      `Each handloom weave bears the subtle mark of its maker: intricate patterns, micro-variations in dye, and a tactile weight that feels grounding. Pair these rustic textiles with authentic regional accessories, and daily attire transforms into a celebration of heritage.`,
-      `Our editorial curation brings together these regional treasures into an exclusive provenance edit for ${cityName}. Designed to elevate your wardrobe, each item tells a story of patience, passion, and uncompromising quality.`,
+      `Our latest dive into the local market reveals a stunning collection of ${heroCat.toLowerCase()} right here in ${cityName}. We've handpicked the highest quality items tailored just for you.`,
+      `Every product featured in this collection is available for immediate delivery. Discover what makes ${cityName}'s selection so unique.`,
+      `Experience the best of ${formatTitle(heroCat)} curated by the EasyBuy Editorial Team.`,
     ],
-    featuredProducts: fashionProducts.length > 0 ? fashionProducts.slice(0, 3) : products.slice(0, 3),
+    featuredProducts: heroProducts.length > 0 ? heroProducts.slice(0, 3) : safeProducts.slice(0, 3),
   };
 
   const craftCards = [
     {
-      title: 'Handloom & Ethnic Weaves',
-      subtitle: `Woven by traditional master weavers in ${cityName}`,
-      image: fashionProducts[0]?.image || 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=500&auto=format&fit=crop&q=80',
-      tag: 'TEXTILE ART',
+      title: `${formatTitle(card1Cat)} Trends`,
+      subtitle: `Discover local ${card1Cat.toLowerCase()} in ${cityName}`,
+      image: adminBanners?.editorialCard1 || getImg(p2),
+      tag: card1Cat,
       story: {
-        issue: 'TEXTILE ART — EXCLUSIVE',
-        title: `Handloom Heritage of ${cityName}`,
+        issue: `${card1Cat} — EXCLUSIVE`,
+        title: `${formatTitle(card1Cat)} in ${cityName}`,
         author: 'EasyBuy Curation Team',
         readTime: '3 min read',
-        coverImage: fashionProducts[0]?.image || 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=500&auto=format&fit=crop&q=80',
+        coverImage: adminBanners?.editorialCard1 || getImg(p2),
         paragraphs: [
-          `Woven by traditional master weavers in ${cityName}, every thread carries generations of craft mastery.`,
-          `Discover rich textures, natural dyes, and royal drapes handcrafted for timeless elegance.`,
+          `Explore the finest ${card1Cat.toLowerCase()} sourced locally in ${cityName}.`,
+          `Uncover premium selections curated just for you.`,
         ],
-        featuredProducts: fashionProducts.length > 0 ? fashionProducts.slice(0, 3) : products.slice(0, 3),
+        featuredProducts: card1Products.length > 0 ? card1Products.slice(0, 3) : safeProducts.slice(0, 3),
       },
     },
     {
-      title: `${cityName} Regional Delicacies`,
-      subtitle: `Authentic local flavors & small-batch treats`,
-      image: foodGourmetProducts[0]?.image || 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=500&auto=format&fit=crop&q=80',
-      tag: 'REGIONAL FLAVORS',
+      title: `${cityName} ${formatTitle(card2Cat)}`,
+      subtitle: `Top picks for ${card2Cat.toLowerCase()}`,
+      image: adminBanners?.editorialCard2 || getImg(p3),
+      tag: card2Cat,
       story: {
-        issue: 'REGIONAL FLAVORS — EXCLUSIVE',
-        title: `Gourmet Specialties of ${cityName}`,
-        author: 'EasyBuy Culinary Desk',
+        issue: `${card2Cat} — EXCLUSIVE`,
+        title: `Best of ${formatTitle(card2Cat)}`,
+        author: 'EasyBuy Desk',
         readTime: '3 min read',
-        coverImage: foodGourmetProducts[0]?.image || 'https://images.unsplash.com/photo-1599785209707-a456fc1337cc?w=500&auto=format&fit=crop&q=80',
+        coverImage: adminBanners?.editorialCard2 || getImg(p3),
         paragraphs: [
-          `Sourced directly from famed food artisans in ${cityName}, these small-batch treats deliver authentic regional taste.`,
-          `Made using age-old recipes, wholesome ingredients, and zero artificial preservatives.`,
+          `Discover the top-rated ${card2Cat.toLowerCase()} available for delivery right now in ${cityName}.`,
+          `Carefully selected based on local trends and availability.`,
         ],
-        featuredProducts: foodGourmetProducts.length > 0 ? foodGourmetProducts.slice(0, 3) : products.slice(3, 6),
-      },
-    },
-    {
-      title: 'Botanical Beauty & Oils',
-      subtitle: `Ayurvedic extracts & cold-pressed skincare`,
-      image: beautyProducts[0]?.image || 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=500&auto=format&fit=crop&q=80',
-      tag: 'PURE EXTRACTS',
-      story: {
-        issue: 'PURE EXTRACTS — EXCLUSIVE',
-        title: `Ayurvedic Skincare of ${cityName}`,
-        author: 'EasyBuy Beauty Desk',
-        readTime: '3 min read',
-        coverImage: beautyProducts[0]?.image || 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=500&auto=format&fit=crop&q=80',
-        paragraphs: [
-          `Cold-pressed & unrefined botanical herbs formulations designed for natural radiance and holistic wellness.`,
-          `Hand-harvested ingredients blended with traditional wisdom for daily skin nourishment.`,
-        ],
-        featuredProducts: beautyProducts.length > 0 ? beautyProducts.slice(0, 3) : products.slice(2, 5),
+        featuredProducts: card2Products.length > 0 ? card2Products.slice(0, 3) : safeProducts.slice(0, 3),
       },
     },
   ];
@@ -1673,12 +1655,23 @@ export default function HomeScreen() {
   const [userName, setUserName] = useState(user?.fullName || 'Bhaskar');
   const [activeTab, setActiveTab] = useState('home');
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
+  const [adminBanners, setAdminBanners] = useState<any>({});
 
   useEffect(() => {
     if (user?.fullName) {
       setUserName(user.fullName);
     }
   }, [user?.fullName]);
+
+  useEffect(() => {
+    // Listen for admin banner overrides
+    const unsubscribe = onSnapshot(doc(db, 'app_config', 'banners'), (docSnap) => {
+      if (docSnap.exists()) {
+        setAdminBanners(docSnap.data());
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const recommendedCategories = useMemo(() => getDailyHomeCategories(), []);
 
@@ -1690,7 +1683,7 @@ export default function HomeScreen() {
     );
   }, [selectedAddress?.city, selectedStateId, selectedStateName]);
 
-  const stateRecommendedProducts = (stateProducts.length >= 4 ? stateProducts : catalog)
+  const stateRecommendedProducts = (stateProducts || [])
     .slice(0, 40)
     .map((p) => ({
       id: p.id,
@@ -1703,11 +1696,8 @@ export default function HomeScreen() {
       image: p.thumbnail,
     }));
 
-  const stateQuickBuyItems = (
-    stateProducts.filter((p) => p.categoryId === 'quickbuy').length >= 3
-      ? stateProducts.filter((p) => p.categoryId === 'quickbuy')
-      : catalog.filter((p) => p.categoryId === 'quickbuy')
-  )
+  const stateQuickBuyItems = (stateProducts || [])
+    .filter((p) => p.categoryId === 'quickbuy')
     .slice(0, 6)
     .map((p, idx) => ({
       id: p.id,
@@ -1716,6 +1706,10 @@ export default function HomeScreen() {
       icon: 'flash-outline',
       bg: idx % 2 === 0 ? '#E8F5E9' : '#FFF3E0',
     }));
+
+  // Re-define constants locally using real Firebase data
+  const RECOMMENDED_PRODUCTS = stateRecommendedProducts;
+  const RECENTLY_VIEWED = stateRecommendedProducts.slice(0, 4);
 
   // ─── Live GPS & World Location State ───
   const [locationModalVisible, setLocationModalVisible] = useState(false);
@@ -1761,6 +1755,8 @@ export default function HomeScreen() {
   const [gamificationModal, setGamificationModal] = useState<string | null>(null);
   const [aiChatVisible, setAiChatVisible] = useState(false);
   const [geminiVoiceVisible, setGeminiVoiceVisible] = useState(false);
+  const [fabCloseSignal, setFabCloseSignal] = useState(0);
+  const fabScrollTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-rotates background photo every 48 hours (2 days)
   const autoRotationIndex = useMemo(() => {
@@ -1964,6 +1960,26 @@ export default function HomeScreen() {
     (isPast, previous) => {
       if (isPast !== previous) {
         runOnJS(setIsHeaderIconDark)(isPast);
+      }
+    },
+    []
+  );
+
+  // Close AI FAB when user scrolls — fires only once per scroll gesture
+  const lastScrollY = useSharedValue(0);
+  const hasFiredClose = useSharedValue(false);
+  useAnimatedReaction(
+    () => reanimatedScrollY.value,
+    (current) => {
+      if (!hasFiredClose.value && Math.abs(current - lastScrollY.value) > 8) {
+        hasFiredClose.value = true;
+        lastScrollY.value = current;
+        runOnJS(setFabCloseSignal)((s: number) => s + 1);
+      }
+      // Reset flag when scroll settles near lastScrollY
+      if (hasFiredClose.value && Math.abs(current - lastScrollY.value) < 2) {
+        hasFiredClose.value = false;
+        lastScrollY.value = current;
       }
     },
     []
@@ -2693,8 +2709,8 @@ export default function HomeScreen() {
   
   // Real Firebase & Catalog products for Everyday Staples (STRICTLY EXCLUDES QuickBuy Express items like Potatoes, Strawberries, Milk, Eggs, Bread, Atta)
   const realStaplesProducts = useMemo(() => {
-    const source = stateProducts.length >= 4 ? stateProducts : catalog;
-    if (!source || source.length === 0) return [];
+    const source = stateProducts || [];
+    if (source.length === 0) return [];
     
     // Strict blacklist for express/quickbuy items (raw produce, daily dairy, quick snacks)
     const isExpressItem = (p: any) => {
@@ -2757,15 +2773,82 @@ export default function HomeScreen() {
     });
   }, [stateProducts]);
 
-  // Dynamic Curated Bundle rotation based on Day of Week & Time of Day
+  // Dynamic Curated Bundle rotation based on Day of Week, Time of Day & Festivals
   const dynamicCuratedBundle: CuratedBundleInfo & { avatar1: string; avatar2: string; badge: string } = useMemo(() => {
     const now = new Date();
     const day = now.getDay(); // 0 = Sun, 5 = Fri, 6 = Sat
     const hour = now.getHours(); // 0 - 23
+    const month = now.getMonth(); // 0 = Jan, 7 = Aug
+    const date = now.getDate();
 
     const isWeekend = day === 0 || day === 5 || day === 6;
     const isLateNight = hour >= 21 || hour < 5;
     const isMorning = hour >= 5 && hour < 12;
+    
+    // ─── INDIAN FESTIVAL CALENDAR ───
+    // Approximated to English calendar months for this dynamic engine
+    const FESTIVALS = [
+      { name: 'Makar Sankranti & Pongal', month: 0, start: 10, end: 18, tag: 'FESTIVE HARVEST', title: 'Sankranti & Pongal Specials', subtitle: 'Til, jaggery, rice, and harvest essentials!', avatar1: 'https://images.unsplash.com/photo-1574316074211-50e5ebf86989?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1518779578993-ec3579fee39f?w=200&q=80', badge: '🌾', keywords: ['jaggery', 'til', 'rice', 'sweet', 'ghee'] },
+      { name: 'Holi', month: 2, start: 10, end: 31, tag: 'FESTIVE COLORS', title: 'Holi Celebration Kit', subtitle: 'Snacks, sweets, and organic colors for a vibrant Holi!', avatar1: 'https://images.unsplash.com/photo-1552554749-d3e510862089?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=200&q=80', badge: '🎨', keywords: ['sweet', 'snack', 'drink', 'color', 'gujiya', 'chip'] },
+      { name: 'Eid', month: 3, start: 5, end: 20, tag: 'FESTIVE FEAST', title: 'Eid Grand Feast Hamper', subtitle: 'Premium dates, dry fruits, and biryani essentials.', avatar1: 'https://images.unsplash.com/photo-1588693766620-e2ef6e9f16ef?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1550974798-2cb634d54625?w=200&q=80', badge: '🌙', keywords: ['date', 'dry fruit', 'rice', 'spice', 'meat', 'sweet'] },
+      { name: 'Raksha Bandhan', month: 7, start: 15, end: 31, tag: 'FESTIVE SPECIAL', title: 'Rakhi Gift Hamper', subtitle: 'Curated sweets, chocolates, and gifts for siblings!', avatar1: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=200&q=80', badge: '🎁', keywords: ['gift', 'sweet', 'chocolate', 'cadbury', 'rakhi', 'hamper'] },
+      { name: 'Ganesh Chaturthi', month: 8, start: 1, end: 15, tag: 'FESTIVE SPECIAL', title: 'Ganesh Utsav Essentials', subtitle: 'Modak, sweets, and puja essentials for Bappa.', avatar1: 'https://images.unsplash.com/photo-1601314115160-c3d350ec85f7?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=200&q=80', badge: '🐘', keywords: ['modak', 'sweet', 'laddoo', 'ghee', 'puja'] },
+      { name: 'Onam', month: 8, start: 16, end: 30, tag: 'FESTIVE HARVEST', title: 'Onam Sadhya Essentials', subtitle: 'Spices, coconut, and traditional staples for Sadhya.', avatar1: 'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=200&q=80', badge: '🥥', keywords: ['coconut', 'spice', 'rice', 'banana', 'oil'] },
+      { name: 'Navratri', month: 9, start: 1, end: 15, tag: 'FESTIVE FASTING', title: 'Navratri Fasting & Feast', subtitle: 'Vrat essentials, pure ghee, makhana, and fresh fruits.', avatar1: 'https://images.unsplash.com/photo-1599490659213-e2b9527bd087?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1627485937980-221c88ab04f9?w=200&q=80', badge: '🔱', keywords: ['vrat', 'makhana', 'sattu', 'ghee', 'fruit', 'dry fruit', 'nut'] },
+      { name: 'Diwali', month: 9, start: 20, end: 31, tag: 'FESTIVE SPARKLE', title: 'Diwali Sparkle Hamper', subtitle: 'Premium dry fruits, artisanal chocolates, and treats!', avatar1: 'https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1508061252966-f7ac25ab2655?w=200&q=80', badge: '🪔', keywords: ['dry fruit', 'nut', 'almond', 'cashew', 'chocolate', 'sweet', 'gift'] },
+      { name: 'Christmas', month: 11, start: 20, end: 31, tag: 'FESTIVE CHEER', title: 'Christmas Bake & Joy', subtitle: 'Cakes, cookies, chocolates, and baking essentials.', avatar1: 'https://images.unsplash.com/photo-1542826438-bd32f43d626f?w=200&q=80', avatar2: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=200&q=80', badge: '🎄', keywords: ['cake', 'cookie', 'chocolate', 'bake', 'sweet', 'gift'] },
+    ];
+
+    const activeFestival = FESTIVALS.find(f => 
+      f.month === month && date >= f.start && date <= f.end
+    );
+
+    // Helper to dynamically fetch products from the catalog instead of hardcoding
+    const getDynamicItems = (keywords: string[], count = 4) => {
+      const pool = stateProducts || [];
+      if (pool.length === 0) return [];
+      
+      // Shuffle pool slightly for variety
+      const shuffled = [...pool].sort(() => 0.5 - Math.random());
+      
+      const filtered = shuffled.filter(p => {
+        const name = (p.name || p.title || '').toLowerCase();
+        const cat = (p.categoryName || p.categoryId || '').toLowerCase();
+        return keywords.some(kw => name.includes(kw) || cat.includes(kw));
+      });
+      
+      // If we found ANY matching items, use them (even if it's less than `count`). 
+      // ONLY fallback to random items if there are literally zero matches.
+      const matched = filtered.slice(0, count);
+      const finalItems = matched.length > 0 ? matched : shuffled.slice(0, count);
+      
+      return finalItems.map(p => {
+        const priceNum = typeof p.price === 'number' ? p.price : Number((p.price || '199').toString().replace(/[^0-9]/g, ''));
+        return {
+          id: p.id,
+          title: p.name || p.title || 'Curated Item',
+          price: `₹${priceNum}`,
+          priceNum: priceNum,
+          originalPrice: `₹${priceNum + Math.floor(priceNum * 0.3)}`,
+          image: p.thumbnail || p.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+          category: (p.categoryName || p.categoryId || 'FEATURED').toUpperCase().replace('_', ' '),
+        };
+      });
+    };
+
+    if (activeFestival) {
+      return {
+        tag: activeFestival.tag,
+        title: activeFestival.title,
+        subtitle: activeFestival.subtitle,
+        price: '₹599',
+        oldPrice: '₹899',
+        avatar1: activeFestival.avatar1,
+        avatar2: activeFestival.avatar2,
+        badge: activeFestival.badge,
+        items: getDynamicItems(activeFestival.keywords),
+      };
+    }
 
     if (isLateNight) {
       return {
@@ -2777,53 +2860,7 @@ export default function HomeScreen() {
         avatar1: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=200&auto=format&fit=crop&q=80',
         avatar2: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=200&auto=format&fit=crop&q=80',
         badge: '+3',
-        items: [
-          {
-            id: 'ln-1',
-            title: 'Nissin Master Chef Spicy Garlic Ramen',
-            price: '₹149',
-            priceNum: 149,
-            originalPrice: '₹199',
-            image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=500&auto=format&fit=crop&q=80',
-            category: 'LATE NIGHT SNACK',
-          },
-          {
-            id: 'ln-2',
-            title: '85% Artisanal Dark Belgian Chocolate Bar',
-            price: '₹249',
-            priceNum: 249,
-            originalPrice: '₹320',
-            image: 'https://images.unsplash.com/photo-1548907040-4baa42d10919?w=500&auto=format&fit=crop&q=80',
-            category: 'SWEET CRAVING',
-          },
-          {
-            id: 'ln-3',
-            title: 'Organic Chamomile & Lavender Night Brew Tea',
-            price: '₹299',
-            priceNum: 299,
-            originalPrice: '₹399',
-            image: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=500&auto=format&fit=crop&q=80',
-            category: 'CALM BREW',
-          },
-          {
-            id: 'ln-4',
-            title: 'Midnight Roast Espresso Instant Coffee Jar',
-            price: '₹199',
-            priceNum: 199,
-            originalPrice: '₹275',
-            image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500&auto=format&fit=crop&q=80',
-            category: 'BEVERAGE',
-          },
-          {
-            id: 'ln-5',
-            title: 'Stainless Steel Rapid Auto Electric Kettle (0.8L)',
-            price: '₹899',
-            priceNum: 899,
-            originalPrice: '₹1299',
-            image: 'https://images.unsplash.com/photo-1585837575652-267c041d77d4?w=500&auto=format&fit=crop&q=80',
-            category: 'NIGHT APPLIANCE',
-          },
-        ],
+        items: getDynamicItems(['snack', 'chip', 'noodle', 'maggi', 'tea', 'coffee', 'chocolate']),
       };
     }
 
@@ -2837,179 +2874,42 @@ export default function HomeScreen() {
         avatar1: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=200&auto=format&fit=crop&q=80',
         avatar2: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=200&auto=format&fit=crop&q=80',
         badge: '+3',
-        items: [
-          {
-            id: 'wk-1',
-            title: 'Hand-Cooked Sea Salt & Truffle Potato Chips',
-            price: '₹120',
-            priceNum: 120,
-            originalPrice: '₹160',
-            image: 'https://images.unsplash.com/photo-1566478989037-eec170784d07?w=500&auto=format&fit=crop&q=80',
-            category: 'PARTY SNACK',
-          },
-          {
-            id: 'wk-2',
-            title: 'Sparkling Nitro Cold Brew Coffee (4 Pack)',
-            price: '₹399',
-            priceNum: 399,
-            originalPrice: '₹520',
-            image: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500&auto=format&fit=crop&q=80',
-            category: 'BEVERAGE',
-          },
-          {
-            id: 'wk-3',
-            title: 'Gourmet Italian Four-Cheese Instant Mac',
-            price: '₹180',
-            priceNum: 180,
-            originalPrice: '₹240',
-            image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?w=500&auto=format&fit=crop&q=80',
-            category: 'QUICK MEAL',
-          },
-          {
-            id: 'wk-4',
-            title: 'Swiss Roasted Hazelnut Milk Chocolate',
-            price: '₹299',
-            priceNum: 299,
-            originalPrice: '₹380',
-            image: 'https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=500&auto=format&fit=crop&q=80',
-            category: 'CHOCOLATE',
-          },
-          {
-            id: 'wk-5',
-            title: 'Roasted Salted Cashew & Trail Mix Tub',
-            price: '₹349',
-            priceNum: 349,
-            originalPrice: '₹450',
-            image: 'https://images.unsplash.com/photo-1536591375315-1b8626993134?w=500&auto=format&fit=crop&q=80',
-            category: 'NUTS & CRUNCH',
-          },
-        ],
+        items: getDynamicItems(['snack', 'beverage', 'party', 'juice', 'cookie', 'biscuit']),
       };
     }
 
     if (isMorning) {
       return {
         tag: 'MORNING ESSENTIALS',
-        title: 'Rise & Shine Breakfast Kit',
-        subtitle: 'Start your day right with fresh organic teas, oats & raw mountain honey.',
-        price: '₹399',
-        oldPrice: '₹549',
-        avatar1: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=200&auto=format&fit=crop&q=80',
-        avatar2: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=200&auto=format&fit=crop&q=80',
-        badge: '+3',
-        items: [
-          {
-            id: 'bk-1',
-            title: 'Whole Rolled Organic Oats (1kg Jar)',
-            price: '₹299',
-            priceNum: 299,
-            originalPrice: '₹399',
-            image: 'https://images.unsplash.com/photo-1517093728432-a0440f8d45af?w=500&auto=format&fit=crop&q=80',
-            category: 'BREAKFAST',
-          },
-          {
-            id: 'bk-2',
-            title: 'Pure Himalayan Wildflower Raw Honey (500g)',
-            price: '₹349',
-            priceNum: 349,
-            originalPrice: '₹450',
-            image: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=500&auto=format&fit=crop&q=80',
-            category: 'PANTRY',
-          },
-          {
-            id: 'bk-3',
-            title: 'Premium Single-Estate Assam Golden Leaf Tea',
-            price: '₹249',
-            priceNum: 249,
-            originalPrice: '₹325',
-            image: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=500&auto=format&fit=crop&q=80',
-            category: 'TEA & BREW',
-          },
-          {
-            id: 'bk-4',
-            title: 'California Sun-Dried Raw Almonds (250g)',
-            price: '₹399',
-            priceNum: 399,
-            originalPrice: '₹499',
-            image: 'https://images.unsplash.com/photo-1508061252966-f7ac25ab2655?w=500&auto=format&fit=crop&q=80',
-            category: 'HEALTHY NUTS',
-          },
-          {
-            id: 'bk-5',
-            title: 'Artisanal Organic Mixed Berry Breakfast Jam',
-            price: '₹199',
-            priceNum: 199,
-            originalPrice: '₹275',
-            image: 'https://images.unsplash.com/photo-1568571780765-9276ac8b75a2?w=500&auto=format&fit=crop&q=80',
-            category: 'SPREADS',
-          },
-        ],
+        title: 'Morning Power Start Bundle',
+        subtitle: 'Fresh essentials to kickstart your day right.',
+        price: '₹299',
+        oldPrice: '₹399',
+        avatar1: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=200&auto=format&fit=crop&q=80',
+        avatar2: 'https://images.unsplash.com/photo-1563636619-e9143da7973b?w=200&auto=format&fit=crop&q=80',
+        badge: '+2',
+        items: getDynamicItems(['milk', 'bread', 'egg', 'coffee', 'tea', 'oat', 'fruit']),
       };
     }
 
-    // Midweek Afternoon/Evening
+    // Default Mid-Day
     return {
-      tag: 'MIDWEEK PANTRY KIT',
-      title: 'Monsoon Artisanal Pantry Kit',
-      subtitle: 'Handpicked makhana, artisanal dark roast & gourmet health bites.',
+      tag: 'DAILY ESSENTIALS',
+      title: 'Mid-Day Restock Kit',
+      subtitle: 'Top up your pantry with everyday healthy essentials.',
       price: '₹449',
       oldPrice: '₹599',
-      avatar1: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=200&auto=format&fit=crop&q=80',
-      avatar2: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=200&auto=format&fit=crop&q=80',
-      badge: '+3',
-      items: [
-        {
-          id: 'mp-1',
-          title: 'Slow-Roasted Himalayan Peri Peri Makhana',
-          price: '₹180',
-          priceNum: 180,
-          originalPrice: '₹240',
-          image: 'https://images.unsplash.com/photo-1599490659213-e2b9527bd087?w=500&auto=format&fit=crop&q=80',
-          category: 'GULP & SNACK',
-        },
-        {
-          id: 'mp-2',
-          title: 'Cold Pressed Extra Virgin Olive Oil (500ml)',
-          price: '₹699',
-          priceNum: 699,
-          originalPrice: '₹899',
-          image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=500&auto=format&fit=crop&q=80',
-          category: 'COOKING OIL',
-        },
-        {
-          id: 'mp-3',
-          title: 'Organic Roasted Chana Sattu Flour (1kg)',
-          price: '₹160',
-          priceNum: 160,
-          originalPrice: '₹210',
-          image: 'https://images.unsplash.com/photo-1627485937980-221c88ab04f9?w=500&auto=format&fit=crop&q=80',
-          category: 'SUPERFOOD',
-        },
-        {
-          id: 'mp-4',
-          title: 'Pure Himalayan Pink Rock Salt Jar (1kg)',
-          price: '₹120',
-          priceNum: 120,
-          originalPrice: '₹170',
-          image: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80',
-          category: 'ESSENTIAL SPICE',
-        },
-        {
-          id: 'mp-5',
-          title: 'Dark Roast Single-Origin Chikmagalur Beans',
-          price: '₹450',
-          priceNum: 450,
-          originalPrice: '₹590',
-          image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500&auto=format&fit=crop&q=80',
-          category: 'GOURMET COFFEE',
-        },
-      ],
+      avatar1: 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=200&auto=format&fit=crop&q=80',
+      avatar2: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=80',
+      badge: '+4',
+      items: getDynamicItems(['grocery', 'spice', 'oil', 'dal', 'rice', 'staple']),
     };
-  }, []);
+  }, [stateProducts]);
+
 
   const dynamicEditorial = useMemo(() => {
-    return getDynamicEditorialSection(locationSensitiveData.cityName, locationSensitiveData.products);
-  }, [locationSensitiveData.cityName, locationSensitiveData.products]);
+    return getDynamicEditorialSection(locationSensitiveData.cityName, locationSensitiveData.products, adminBanners);
+  }, [locationSensitiveData.cityName, locationSensitiveData.products, adminBanners]);
 
   return (
     <SpatialDrawerWrapper
@@ -3062,8 +2962,8 @@ export default function HomeScreen() {
 
           <View style={{ flexDirection: 'row', alignItems: 'center', position: 'relative', height: 44, justifyContent: 'flex-end' }} pointerEvents="box-none">
             {/* 1. Floating Cart Icon (Active at top hero point) */}
-            <Reanimated.View style={[cartHeaderAnimStyle, { position: 'absolute', right: 0 }]} pointerEvents="box-none">
-              <TouchableOpacity style={[styles.newCartBtn, isDarkMode && styles.newCartBtnDark]} onPress={() => router.push('/cart' as any)} activeOpacity={0.75}>
+            <Reanimated.View style={[cartHeaderAnimStyle, { position: 'absolute', right: 0 }]} pointerEvents={!isHeaderIconDark ? 'auto' : 'none'}>
+              <TouchableOpacity style={[styles.newCartBtn, isDarkMode && styles.newCartBtnDark]} onPress={() => router.push('/cart' as any)} activeOpacity={0.75} disabled={isHeaderIconDark}>
                 <View style={styles.newCartIconContainer}>
                   <Ionicons name="bag-handle-outline" size={22} color="#FFFFFF" />
                   {totalItems > 0 && (
@@ -3076,7 +2976,7 @@ export default function HomeScreen() {
             </Reanimated.View>
 
             {/* 2. Explore Header Pill Button (Minimal single-line 'Explore') */}
-            <Reanimated.View style={[exploreHeaderAnimStyle, { position: 'absolute', right: 0 }]} pointerEvents="box-none">
+            <Reanimated.View style={[exploreHeaderAnimStyle, { position: 'absolute', right: 0 }]} pointerEvents={isHeaderIconDark ? 'auto' : 'none'}>
               <TouchableOpacity
                 style={styles.headerExploreMoreBtn}
                 onPress={() => {
@@ -3084,6 +2984,7 @@ export default function HomeScreen() {
                   router.push('/all-items');
                 }}
                 activeOpacity={0.8}
+                disabled={!isHeaderIconDark}
               >
                 <Ionicons name="compass-outline" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
                 <Text style={styles.headerExploreMoreText} numberOfLines={1}>Explore</Text>
@@ -3918,6 +3819,7 @@ export default function HomeScreen() {
         <ExpandableAIFab 
           onOpenVoice={() => setGeminiVoiceVisible(true)} 
           onOpenChat={() => setAiChatVisible(true)} 
+          closeSignal={fabCloseSignal}
         />
 
         {/* ─── MODALS ─── */}

@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useCart } from '../../context/CartContext';
 import { useEasyBuyTheme } from '../../constants/ThemeContext';
+import { EmptyStateView } from '../EmptyStateView';
 import { useAuth } from '../../context/AuthContext';
 
 import { auth, db } from '../../services/firebase';
@@ -149,18 +150,14 @@ export const CartDrawerModal: React.FC = () => {
 
           {/* Cart Items List */}
           {cartItems.length === 0 ? (
-            <View style={styles.emptyStateBox}>
-              <Ionicons name="bag-handle-outline" size={54} color={isDarkMode ? '#475569' : '#CBD5E1'} />
-              <Text style={[styles.emptyTitle, isDarkMode && { color: '#F8FAFC' }]}>
-                Your cart is empty
-              </Text>
-              <Text style={[styles.emptySub, isDarkMode && { color: '#94A3B8' }]}>
-                Discover trending items and add them to your cart!
-              </Text>
-              <TouchableOpacity style={styles.exploreBtn} onPress={closeCart}>
-                <Text style={styles.exploreBtnTxt}>Start Shopping →</Text>
-              </TouchableOpacity>
-            </View>
+            <EmptyStateView
+              isDark={isDarkMode}
+              iconName="bag-handle-outline"
+              title="Your cart is empty"
+              subtitle="Discover trending items and add them to your cart!"
+              actionText="Start Shopping →"
+              onAction={closeCart}
+            />
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1, marginVertical: 10 }}>
               {cartItems.map((item) => (

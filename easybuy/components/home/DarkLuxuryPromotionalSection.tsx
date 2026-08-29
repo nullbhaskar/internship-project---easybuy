@@ -81,10 +81,21 @@ export const DARK_PROMO_ITEMS: DarkPromoBannerItem[] = [
 
 interface DarkLuxuryPromotionalSectionProps {
   isDarkMode?: boolean;
+  adminBanners?: any;
 }
 
-export function DarkLuxuryPromotionalSection({ isDarkMode = true }: DarkLuxuryPromotionalSectionProps) {
+export function DarkLuxuryPromotionalSection({ isDarkMode = true, adminBanners }: DarkLuxuryPromotionalSectionProps) {
   const router = useRouter();
+
+  const promoItems = DARK_PROMO_ITEMS.map((item, index) => {
+    if (index === 0 && adminBanners?.featuredPromoMain) {
+      return { ...item, image: adminBanners.featuredPromoMain };
+    }
+    if (index === 1 && adminBanners?.featuredPromoSub) {
+      return { ...item, image: adminBanners.featuredPromoSub };
+    }
+    return item;
+  });
 
   return (
     <View style={styles.sectionContainer}>
@@ -122,7 +133,7 @@ export function DarkLuxuryPromotionalSection({ isDarkMode = true }: DarkLuxuryPr
         snapToInterval={SCREEN_WIDTH * 0.82 + 16}
         snapToAlignment="start"
       >
-        {DARK_PROMO_ITEMS.map((item) => (
+        {promoItems.map((item) => (
           <TouchableOpacity
             key={item.id}
             style={[styles.bannerCard, isDarkMode && styles.bannerCardDark]}

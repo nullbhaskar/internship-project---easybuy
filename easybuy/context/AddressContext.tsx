@@ -13,6 +13,7 @@ import {
   requestLocationAndDetectGPS,
   normalizeStateToId,
 } from '../services/locationPermissionService';
+import { AppError, ErrorCode, handleError } from '../utils/AppError';
 
 export interface DeliveryAddress {
   addressId: string;
@@ -317,10 +318,13 @@ export const AddressProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setSelectedStateNameState(res.stateName || 'Bihar');
         await loadProductsForState(res.stateId);
         return true;
+      } else {
+        handleError(new AppError(ErrorCode.LOCATION_UNAVAILABLE, 'Could not detect your GPS location. Please enter manually.'));
+        return false;
       }
-      return false;
     } catch (e) {
       console.log('Error detecting GPS:', e);
+      handleError(new AppError(ErrorCode.LOCATION_UNAVAILABLE, 'GPS detection failed. Please check device settings.'));
       return false;
     } finally {
       setIsLoadingLocation(false);

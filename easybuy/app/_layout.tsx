@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, View, Image, Animated } from 'react-native';
+import { StyleSheet, View, Image, Animated, LogBox } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -30,6 +30,10 @@ import {
 } from '@expo-google-fonts/outfit';
 
 import { AuthProvider } from '../context/AuthContext';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+
+// Suppress Expo Go SDK 53 Push Notification warning during development
+LogBox.ignoreLogs(['expo-notifications: Android Push notifications']);
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -107,44 +111,46 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <LanguageProvider>
-        <AuthProvider>
-          <AddressProvider>
-            <CartProvider>
-              <WishlistProvider>
-                <ProductTransitionProvider>
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      animation: 'slide_from_right',
-                      animationDuration: 240,
-                    }}
-                  >
-                    <Stack.Screen name="index" options={{ animation: 'fade' }} />
-                    <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
-                    <Stack.Screen name="login" options={{ animation: 'slide_from_bottom' }} />
-                    <Stack.Screen name="register" options={{ animation: 'slide_from_right' }} />
-                    <Stack.Screen name="forgot-password" options={{ animation: 'slide_from_right' }} />
-                    <Stack.Screen name="admin" options={{ animation: 'slide_from_bottom' }} />
-                    <Stack.Screen name="home" options={{ animation: 'fade' }} />
-                    <Stack.Screen name="profile" options={{ animation: 'fade_from_bottom' }} />
-                    <Stack.Screen name="quickbuy" options={{ animation: 'slide_from_bottom', animationDuration: 260 }} />
-                    <Stack.Screen name="orders" options={{ animation: 'slide_from_right' }} />
-                    <Stack.Screen name="all-items" options={{ animation: 'slide_from_right' }} />
-                    <Stack.Screen name="offers" options={{ animation: 'fade_from_bottom' }} />
-                    <Stack.Screen name="add-address" options={{ animation: 'slide_from_bottom' }} />
-                    <Stack.Screen name="product/[id]" options={{ animation: 'none' }} />
-                  </Stack>
-                  <CartDrawerModal />
-                  <WishlistDrawerModal />
-                  <LocationPickerModal />
-                  <AdminFloatingBar />
-                </ProductTransitionProvider>
-              </WishlistProvider>
-            </CartProvider>
-          </AddressProvider>
-        </AuthProvider>
-      </LanguageProvider>
+      <ErrorBoundary>
+        <LanguageProvider>
+          <AuthProvider>
+            <AddressProvider>
+              <CartProvider>
+                <WishlistProvider>
+                  <ProductTransitionProvider>
+                    <Stack
+                      screenOptions={{
+                        headerShown: false,
+                        animation: 'fade',
+                        animationDuration: 240,
+                      }}
+                    >
+                      <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                      <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+                      <Stack.Screen name="login" options={{ animation: 'slide_from_bottom' }} />
+                      <Stack.Screen name="register" options={{ animation: 'slide_from_right' }} />
+                      <Stack.Screen name="forgot-password" options={{ animation: 'slide_from_right' }} />
+                      <Stack.Screen name="admin" options={{ animation: 'slide_from_bottom' }} />
+                      <Stack.Screen name="home" options={{ animation: 'fade' }} />
+                      <Stack.Screen name="profile" options={{ animation: 'fade_from_bottom' }} />
+                      <Stack.Screen name="quickbuy" options={{ animation: 'slide_from_bottom', animationDuration: 260 }} />
+                      <Stack.Screen name="orders" options={{ animation: 'slide_from_right' }} />
+                      <Stack.Screen name="all-items" options={{ animation: 'slide_from_right' }} />
+                      <Stack.Screen name="offers" options={{ animation: 'fade_from_bottom' }} />
+                      <Stack.Screen name="add-address" options={{ animation: 'slide_from_bottom' }} />
+                      <Stack.Screen name="product/[id]" options={{ animation: 'none' }} />
+                    </Stack>
+                    <CartDrawerModal />
+                    <WishlistDrawerModal />
+                    <LocationPickerModal />
+                    <AdminFloatingBar />
+                  </ProductTransitionProvider>
+                </WishlistProvider>
+              </CartProvider>
+            </AddressProvider>
+          </AuthProvider>
+        </LanguageProvider>
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }

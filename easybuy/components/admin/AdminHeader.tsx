@@ -47,11 +47,8 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
           <Ionicons name="search" size={20} color="#475569" />
         </TouchableOpacity>
         
-        <TouchableOpacity onPress={onLogout} style={styles.avatarWrap}>
-          <Image 
-            source={{ uri: 'https://i.pravatar.cc/100?img=11' }} 
-            style={styles.avatar} 
-          />
+        <TouchableOpacity onPress={onLogout} style={styles.textAvatar}>
+          <Text style={styles.textAvatarChar}>A</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -91,7 +88,24 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   iconBtn: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  textAvatarChar: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700'
   },
   avatarWrap: {
     width: 32,
