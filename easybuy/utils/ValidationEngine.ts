@@ -39,9 +39,9 @@ export class ValidationEngine {
         };
       }
 
-      // 2. Check Stock Integrity
-      const currentStock = Number(product.stock || product.inventory || 0);
-      if (currentStock < requestedQuantity) {
+      // 2. Check Stock Integrity (Lenient for missing stock fields)
+      const currentStock = product.stock !== undefined ? Number(product.stock) : (product.inventory !== undefined ? Number(product.inventory) : 999);
+      if (currentStock < requestedQuantity && currentStock !== 999) {
         return {
           isValid: false,
           error: new AppError(

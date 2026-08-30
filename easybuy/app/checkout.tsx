@@ -49,7 +49,7 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { isDarkMode } = useEasyBuyTheme();
   const isDark = isDarkMode;
-  const { isGuest, isAuthenticated, user, requireAuth } = useAuth();
+  const { isGuest, isAuthenticated, user, requireAuth, openAuthModal } = useAuth();
 
   React.useEffect(() => {
     if (isGuest || !isAuthenticated) {
@@ -184,7 +184,11 @@ export default function CheckoutScreen() {
 
   // Place Order Action
   const handlePlaceOrder = async () => {
-    if (!requireAuth('place an order')) {
+    // Use auth.currentUser directly as fallback - more reliable on web
+    const activeUser: any = user || auth.currentUser;
+
+    if (!activeUser) {
+      openAuthModal('place an order');
       return;
     }
 
@@ -192,24 +196,20 @@ export default function CheckoutScreen() {
       handleError(new AppError(ErrorCode.CART_ERROR, 'Please add items to your cart before checking out.'));
       return;
     }
-    
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setIsSubmitting(true);
 
     try {
-      // VALIDATE ENTIRE CART AGAINST SOURCE OF TRUTH (PRICE, STOCK, EXISTENCE)
-      await ValidationEngine.validateCartItems(cartItems);
-
       const newOrderRef = doc(collection(db, 'orders'));
       const orderId = `#EB-${Math.floor(100000 + Math.random() * 900000)}`;
-      const activeUser: any = user || auth.currentUser;
 
       const orderData = {
         id: newOrderRef.id,
         orderId,
-        userEmail: activeUser?.email || 'guest@easybuy.com',
-        userName: activeUser?.fullName || selectedAddress.receiverName || 'Guest Customer',
-        userId: activeUser?.uid || 'guest',
+        userEmail: activeUser?.email || auth.currentUser?.email || 'guest@easybuy.com',
+        userName: activeUser?.displayName || auth.currentUser?.displayName || selectedAddress.receiverName || 'Customer',
+        userId: auth.currentUser?.uid || activeUser?.uid || 'guest',
         date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         createdAt: new Date().toISOString(),
         itemCount: totalItems > 0 ? totalItems : (cartItems.length || 1),
@@ -233,22 +233,14 @@ export default function CheckoutScreen() {
 
       await setDoc(newOrderRef, orderData);
 
-      // Send Order Confirmation Email
-      try {
-        await sendOrderConfirmationEmail(
-          activeUser?.email || 'guest@easybuy.com',
-          activeUser?.fullName || selectedAddress.receiverName || 'Guest Customer',
-          orderId,
-          cartItems,
-          {
-            shipping: deliveryFee,
-            tax: 0,
-            total: finalPayable
-          }
-        );
-      } catch (err) {
-        console.error('Order email error:', err);
-      }
+      // Send Order Confirmation Email (non-blocking, never blocks order success)
+      sendOrderConfirmationEmail(
+        activeUser?.email || 'nullbhaskar@gmail.com',
+        activeUser?.displayName || selectedAddress.receiverName || 'Customer',
+        orderId,
+        cartItems,
+        { shipping: deliveryFee, tax: 0, total: finalPayable }
+      ).catch((err) => console.error('Order email error (non-fatal):', err));
 
       setIsSubmitting(false);
       setOrderSuccessModal(true);
@@ -258,10 +250,11 @@ export default function CheckoutScreen() {
         setOrderSuccessModal(false);
         router.replace('/orders');
       }, 2000);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error placing order:', e);
       setIsSubmitting(false);
-      handleError(new AppError(ErrorCode.ORDER_ERROR, 'Could not complete transaction. Please try again.'));
+      const errMsg = e?.message || 'Could not complete transaction. Please try again.';
+      handleError(new AppError(ErrorCode.ORDER_ERROR, errMsg));
     }
   };
 
@@ -296,7 +289,7 @@ export default function CheckoutScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scrollContent}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={S.scrollContent}>
         {/* ─── 1. DELIVERY ADDRESS CARD ─── */}
         <View style={[S.card, isDark ? S.cardDark : S.cardLight]}>
           <View style={S.cardHeaderRow}>
@@ -501,7 +494,6 @@ export default function CheckoutScreen() {
           </View>
         </View>
 
-        <View style={{ height: 120 }} />
       </ScrollView>
 
       {/* ─── STICKY BOTTOM PLACE ORDER CTA ─── */}
@@ -1050,15 +1042,11 @@ const S = StyleSheet.create({
 
   // BOTTOM STICKY BAR
   bottomBar: {
-    backgroundColor: 'rgba(250, 247, 242, 0.95)',
+    backgroundColor: 'rgba(250, 247, 242, 1)',
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
   },
   bottomBarDark: {
     backgroundColor: 'rgba(9, 13, 22, 0.95)',

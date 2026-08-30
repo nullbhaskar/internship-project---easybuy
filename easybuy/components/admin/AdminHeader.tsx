@@ -16,12 +16,11 @@ interface AdminHeaderProps {
 }
 
 const SECTION_TITLES: Record<AdminSection, { title: string; subtitle: string }> = {
-  dashboard:  { title: 'Dashboard',  subtitle: 'Store overview' },
-  products:   { title: 'Catalog',   subtitle: 'Manage catalog' },
-  categories: { title: 'Categories', subtitle: 'Browse by category' },
-  orders:     { title: 'Orders',     subtitle: 'Order management' },
-  analytics:  { title: 'Analytics',  subtitle: 'Store insights' },
-  settings:   { title: 'Settings',   subtitle: 'Admin preferences' },
+  dashboard: { title: 'Dashboard', subtitle: 'Overview & Analytics' },
+  aicontrol: { title: 'AI Control', subtitle: 'System Intelligence' },
+  stock: { title: 'Inventory', subtitle: 'Stock Management' },
+  products: { title: 'Products', subtitle: 'Catalog Directory' },
+  orders: { title: 'Orders', subtitle: 'Fulfillment Center' },
 };
 
 export const AdminHeader: React.FC<AdminHeaderProps> = ({

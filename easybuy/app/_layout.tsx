@@ -10,10 +10,10 @@ import { AddressProvider } from '../context/AddressContext';
 import { ThemeProvider } from '../constants/ThemeContext';
 import { CartProvider } from '../context/CartContext';
 import { WishlistProvider } from '../context/WishlistContext';
-import { CartDrawerModal } from '../components/cart/CartDrawerModal';
 import { WishlistDrawerModal } from '../components/wishlist/WishlistDrawerModal';
 import { LocationPickerModal } from '../components/location';
 import { AdminFloatingBar } from '../components/admin/AdminFloatingBar';
+import { StickyCartBar } from '../components/cart/StickyCartBar';
 
 import { ProductTransitionProvider } from '../context/ProductTransitionContext';
 
@@ -140,10 +140,10 @@ export default function RootLayout() {
                       <Stack.Screen name="add-address" options={{ animation: 'slide_from_bottom' }} />
                       <Stack.Screen name="product/[id]" options={{ animation: 'none' }} />
                     </Stack>
-                    <CartDrawerModal />
                     <WishlistDrawerModal />
                     <LocationPickerModal />
                     <AdminFloatingBar />
+                    <StickyCartBar />
                   </ProductTransitionProvider>
                 </WishlistProvider>
               </CartProvider>

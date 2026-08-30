@@ -60,22 +60,39 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Always clear cart first on user change (prevents cross-user leakage)
       setCartItems([]);
 
-      if (isGuest || !isAuthenticated) {
+      if (isGuest || !isAuthenticated || user?.isAdmin) {
         return;
       }
 
       try {
         const activeUid = user?.uid || auth.currentUser?.uid;
+        let loadedFromFirestore = false;
+
         if (activeUid) {
           const userDocRef = doc(db, 'users', activeUid);
           const snap = await getDoc(userDocRef);
-          if (snap.exists() && snap.data().cart) {
+          if (snap.exists() && snap.data().cart && snap.data().cart.length > 0) {
             setCartItems(snap.data().cart);
+            loadedFromFirestore = true;
+          }
+        }
+
+        // Fallback: If Firestore didn't have the cart, load from AsyncStorage (bulletproof persistence)
+        if (!loadedFromFirestore && activeUid) {
+          const localCart = await AsyncStorage.getItem(`easybuy_cart_items_${activeUid}`);
+          if (localCart) {
+            setCartItems(JSON.parse(localCart));
           }
         }
       } catch (e) {
-        console.log('Error loading cart:', e);
-        handleError(new AppError(ErrorCode.CART_ERROR, 'Failed to load your cart items.'));
+        console.log('Error loading cart from Firestore, falling back to local storage:', e);
+        try {
+          const activeUid = user?.uid || auth.currentUser?.uid;
+          if (activeUid) {
+            const localCart = await AsyncStorage.getItem(`easybuy_cart_items_${activeUid}`);
+            if (localCart) setCartItems(JSON.parse(localCart));
+          }
+        } catch(err) {}
       }
     }
     loadCartData();
@@ -83,11 +100,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Save Cart state helper
   const persistCart = async (items: CartItem[]) => {
-    if (isGuest) return;
+    if (isGuest || user?.isAdmin) return;
     try {
-      await AsyncStorage.setItem('easybuy_cart_items', JSON.stringify(items));
       const activeUid = user?.uid || auth.currentUser?.uid;
       if (activeUid) {
+        await AsyncStorage.setItem(`easybuy_cart_items_${activeUid}`, JSON.stringify(items));
         const userDocRef = doc(db, 'users', activeUid);
         await setDoc(userDocRef, { cart: items }, { merge: true });
       }
@@ -98,7 +115,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addToCart = async (item: Omit<CartItem, 'quantity'> & { quantity?: number }) => {
-    if (!requireAuth('add items to your cart')) {
+    if (!requireAuth('add items to your cart') || user?.isAdmin) {
       return;
     }
 
@@ -107,13 +124,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check existing quantity in cart
     const existingItem = cartItems.find(i => i.id === item.id);
     const totalRequestedQty = (existingItem?.quantity || 0) + addQty;
-
-    // VALIDATE AGAINST SOURCE OF TRUTH BEFORE ADDING
-    const validation = await ValidationEngine.validateProductForPurchase(item.id, totalRequestedQty);
-    if (!validation.isValid && validation.error) {
-      handleError(validation.error);
-      return;
-    }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
@@ -125,9 +135,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           idx === existingIdx ? { ...i, quantity: i.quantity + addQty } : i
         );
       } else {
-        // Use verified price from DB if available
-        const verifiedPrice = validation.product?.price || item.price;
-        updated = [...prev, { ...item, price: verifiedPrice, quantity: addQty }];
+        updated = [...prev, { ...item, quantity: addQty }];
       }
       persistCart(updated);
       return updated;

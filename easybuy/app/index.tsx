@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Redirect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../context/AuthContext';
 
 // 💡 DEVELOPMENT MODE TOGGLE:
 // Set to `false` so the app remembers onboarding completion and goes straight to Login on reload!
@@ -10,6 +11,7 @@ export const DEV_MODE_ALWAYS_SHOW_ONBOARDING = false;
 export default function Index() {
   const [loading, setLoading] = useState(true);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
+  const { isAuthenticated, authState } = useAuth(); // Read auth state
 
   useEffect(() => {
     async function checkStorage() {
@@ -27,7 +29,8 @@ export default function Index() {
     checkStorage();
   }, []);
 
-  if (loading) {
+  // Wait for both AsyncStorage check AND AuthContext to be ready
+  if (loading || authState === 'loading') {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2D6B42" />
@@ -40,6 +43,12 @@ export default function Index() {
     return <Redirect href="/onboarding" />;
   }
 
+  // If already logged in (persisted auth), throw them straight to Home!
+  if (hasSeenOnboarding && isAuthenticated) {
+    return <Redirect href="/home" />;
+  }
+
+  // If seen onboarding but NOT logged in, throw to Login
   if (hasSeenOnboarding) {
     return <Redirect href="/login" />;
   }

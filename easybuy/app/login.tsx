@@ -232,8 +232,11 @@ export default function LoginScreen() {
 
         if (isTrueAdmin || isBhaskarBypass) {
           isAuthenticated = true;
-          profileData = {
-            uid: isTrueAdmin ? 'admin_root' : 'user_' + Date.now(),
+            let stableUid = 'user_' + cleanEmail.replace(/[^a-z0-9]/g, '');
+            if (isTrueAdmin) stableUid = 'admin_root';
+            
+            profileData = {
+              uid: stableUid,
             email: cleanEmail,
             fullName: isTrueAdmin ? 'EasyBuy Admin' : 'Bhaskar',
             isAdmin: isTrueAdmin,
@@ -253,7 +256,7 @@ export default function LoginScreen() {
             isAuthenticated = true;
             const docData = querySnapshot.docs[0].data();
             profileData = {
-              uid: querySnapshot.docs[0].id || docData.uid || 'user_' + Date.now(),
+              uid: querySnapshot.docs[0].id || docData.uid || 'user_' + cleanEmail.replace(/[^a-z0-9]/g, ''),
               email: cleanEmail,
               fullName: docData.fullName || 'EasyBuy Customer',
               phone: docData.phone,
@@ -283,7 +286,7 @@ export default function LoginScreen() {
         if (isAuthenticated) {
           if (!profileData) {
             profileData = {
-              uid: 'user_' + Date.now(),
+              uid: 'user_' + cleanEmail.replace(/[^a-z0-9]/g, ''),
               email: cleanEmail,
               fullName: 'EasyBuy Customer',
             };
@@ -581,7 +584,7 @@ export default function LoginScreen() {
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={styles.guestBtnText}>Continue as Guest ⚡</Text>
+                <Text style={styles.guestBtnText}>Continue as Guest</Text>
               </TouchableOpacity>
 
               {/* Trust Badges — Fades away & collapses on keyboard open */}

@@ -22,6 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { AppError, ErrorCode, handleError } from '../utils/AppError';
 import { EmptyStateView } from '../components/EmptyStateView';
+import { ReturnFlowModal } from '../components/orders/ReturnFlowModal';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -98,6 +99,7 @@ export default function OrdersScreen() {
   }, [isGuest, isAuthenticated]);
 
   const [activeTab, setActiveTab] = useState<string>('All Orders');
+  const [returnModalOrder, setReturnModalOrder] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
 
@@ -977,6 +979,23 @@ export default function OrdersScreen() {
                   <Ionicons name="close-circle" size={18} color="#EF4444" style={{ marginRight: 6 }} />
                   <Text style={S.modalCancelledPillTxt}>This Order has been Cancelled</Text>
                 </View>
+              ) : selectedOrderForModal?.status === 'Return Requested' ? (
+                <View style={[S.modalCancelledPill, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                  <Ionicons name="refresh-circle" size={18} color="#D97706" style={{ marginRight: 6 }} />
+                  <Text style={[S.modalCancelledPillTxt, { color: '#D97706' }]}>Return Processing</Text>
+                </View>
+              ) : selectedOrderForModal?.status === 'Delivered' ? (
+                <TouchableOpacity
+                  style={[S.modalCancelBtn, { backgroundColor: BRAND_THEME.PRIMARY }]}
+                  onPress={() => {
+                    setSelectedOrderForModal(null);
+                    setTimeout(() => setReturnModalOrder(selectedOrderForModal), 300); // Wait for modal close animation
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="return-down-back" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={S.modalCancelBtnText}>Initiate Return</Text>
+                </TouchableOpacity>
               ) : (
                 <TouchableOpacity
                   style={S.modalCancelBtn}
@@ -1000,6 +1019,17 @@ export default function OrdersScreen() {
           if (tabId === 'profile') router.push('/profile');
         }}
         isDarkMode={isDark}
+      />
+
+      <ReturnFlowModal 
+        visible={!!returnModalOrder}
+        order={returnModalOrder}
+        onClose={() => setReturnModalOrder(null)}
+        onReturnComplete={(orderId) => {
+          // You could optionally refresh data here, but Firestore listener does it automatically!
+          // We don't close the modal immediately so the user can see the "Success" screen.
+          // The modal has a "Back to Home" button which calls onClose.
+        }}
       />
     </SafeAreaView>
   );

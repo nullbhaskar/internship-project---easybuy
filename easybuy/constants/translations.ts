@@ -55,7 +55,7 @@ export const translations: Record<LanguageCode, TranslationKeys> = {
   en: {
     appName: 'EasyBuy',
     tagline: 'Smart Shopping, Easy Living 💚',
-    welcomeHeading: 'Welcome Back! 👋',
+    welcomeHeading: 'Welcome Back!',
     welcomeSubtitle: 'Login to continue shopping with EasyBuy',
     usernamePlaceholder: 'Email ID',
     passwordPlaceholder: 'Password',

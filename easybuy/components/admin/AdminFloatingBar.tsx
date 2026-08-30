@@ -1,19 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Animated,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  PanResponder,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, usePathname } from 'expo-router';
 import { auth } from '../../services/firebase';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import Animated, { 
+  FadeInUp, 
+  FadeOutUp, 
+  LinearTransition,
+  withSpring,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 const ADMIN_EMAIL = 'admineasybuy@gmail.com';
 
@@ -22,13 +32,8 @@ export const AdminFloatingBar: React.FC = () => {
   const [minimized, setMinimized] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
 
-  // Bubble drag position (only used in minimized mode)
-  const pan = useRef(new Animated.ValueXY({ x: width - 72, y: height * 0.35 })).current;
-  const barSlide = useRef(new Animated.Value(-60)).current;
-  const barOpacity = useRef(new Animated.Value(0)).current;
-
-  // Check admin status on mount and when auth changes
   useEffect(() => {
     const check = async () => {
       try {
@@ -45,186 +50,182 @@ export const AdminFloatingBar: React.FC = () => {
       }
     };
     check();
-    // Re-check every time the screen changes (covers login/logout)
     const unsub = auth.onAuthStateChanged(() => check());
     return unsub;
   }, [pathname]);
 
-  // Animate bar in/out
-  useEffect(() => {
-    if (isAdmin) {
-      Animated.parallel([
-        Animated.spring(barSlide, { toValue: 0, tension: 80, friction: 12, useNativeDriver: true }),
-        Animated.timing(barOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.timing(barOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
-    }
-  }, [isAdmin]);
-
-  // Drag responder for minimized bubble
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-      onPanResponderRelease: () => pan.flattenOffset(),
-      onPanResponderGrant: () => pan.setOffset({ x: (pan.x as any)._value, y: (pan.y as any)._value }),
-    })
-  ).current;
-
-  // Hide completely on login/auth screens or when not admin
   const isAuthScreen = !pathname || ['/login', '/register', '/forgot-password', '/onboarding', '/'].includes(pathname);
   if (!isAdmin || isAuthScreen) return null;
 
   const isOnAdminScreen = pathname === '/admin' || pathname?.startsWith('/admin');
 
-  // ── Minimized floating bubble ──────────────────────────────────
-  if (minimized) {
-    return (
-      <Animated.View
-        style={[styles.bubble, { transform: pan.getTranslateTransform() }]}
-        {...panResponder.panHandlers}
+  const toggleMinimize = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setMinimized(!minimized);
+  };
+
+  const handleSwitch = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    if (isOnAdminScreen) {
+      router.replace('/home' as any);
+    } else {
+      router.replace('/admin' as any);
+    }
+  };
+
+  // The Dynamic Island spring configuration
+  const islandTransition = LinearTransition.springify().damping(16).stiffness(120);
+
+  return (
+    <View style={[styles.wrapper, { top: Math.max(insets.top + 10, 20) }]} pointerEvents="box-none">
+      <Animated.View 
+        entering={FadeInUp.springify().damping(14).stiffness(100)} 
+        exiting={FadeOutUp}
+        layout={islandTransition}
+        style={[styles.shadowContainer]}
       >
-        <TouchableOpacity
-          onPress={() => setMinimized(false)}
-          onLongPress={() => {
-            if (isOnAdminScreen) {
-              router.push('/home' as any);
-            } else {
-              router.push('/admin' as any);
-            }
-          }}
-          activeOpacity={0.85}
-          style={styles.bubbleInner}
+        <TouchableOpacity 
+          activeOpacity={0.9} 
+          onPress={minimized ? toggleMinimize : undefined}
+          style={{ borderRadius: 30 }}
         >
-          <Ionicons name={isOnAdminScreen ? 'home' : 'shield-checkmark'} size={20} color="#FFFFFF" />
+          {/* 
+            On web, BlurView can sometimes create a white box if mixed with shadows. 
+            We isolate the blur inside a hidden overflow container.
+          */}
+          <View style={[styles.blurClipper, minimized && styles.blurClipperMinimized]}>
+            <BlurView intensity={Platform.OS === 'web' ? 100 : 80} tint="dark" style={styles.pill}>
+              
+              {/* Left Section (Dot + Label) */}
+              <View style={styles.leftSection}>
+                <View style={styles.pulseDot} />
+                {!minimized && <Text style={styles.adminLabel} numberOfLines={1}>ADMIN</Text>}
+              </View>
+
+              {/* Actions Section */}
+              <View style={styles.actions} pointerEvents={minimized ? 'none' : 'auto'}>
+                <TouchableOpacity
+                  style={[styles.switchBtn, minimized && styles.switchBtnMinimized]}
+                  onPress={handleSwitch}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons 
+                    name={isOnAdminScreen ? "home" : "shield-checkmark"} 
+                    size={minimized ? 18 : 14} 
+                    color="#1A3D2B" 
+                  />
+                  {!minimized && (
+                    <Text style={styles.switchBtnText}>
+                      {isOnAdminScreen ? "View App" : "Dashboard"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {!minimized && (
+                  <TouchableOpacity
+                    style={styles.minimizeBtn}
+                    onPress={toggleMinimize}
+                    activeOpacity={0.8}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  >
+                    <Ionicons name="contract" size={16} color="#A3B8AC" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+            </BlurView>
+          </View>
         </TouchableOpacity>
       </Animated.View>
-    );
-  }
-
-  // ── Full bar ───────────────────────────────────────────────────
-  return (
-    <Animated.View
-      style={[
-        styles.bar,
-        { transform: [{ translateY: barSlide }], opacity: barOpacity },
-      ]}
-      pointerEvents="box-none"
-    >
-      {/* Left: context-aware nav button */}
-      {isOnAdminScreen ? (
-        <TouchableOpacity
-          style={styles.navBtn}
-          onPress={() => router.push('/home' as any)}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="home-outline" size={14} color="#FFFFFF" />
-          <Text style={styles.navBtnText}>View App</Text>
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity
-          style={styles.navBtn}
-          onPress={() => router.push('/admin' as any)}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="shield-checkmark-outline" size={14} color="#FFFFFF" />
-          <Text style={styles.navBtnText}>Admin Panel</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Center label */}
-      <View style={styles.centerLabel}>
-        <View style={styles.adminDot} />
-        <Text style={styles.adminLabel}>ADMIN MODE</Text>
-      </View>
-
-      {/* Right: minimize */}
-      <TouchableOpacity
-        style={styles.minimizeBtn}
-        onPress={() => setMinimized(true)}
-        activeOpacity={0.8}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Ionicons name="remove" size={16} color="rgba(255,255,255,0.7)" />
-      </TouchableOpacity>
-    </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  bar: {
+  wrapper: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
-    height: 38,
-    backgroundColor: '#1A3D2B',
+    alignItems: 'center',
+    zIndex: 99999,
+  },
+  shadowContainer: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 10,
+    borderRadius: 30,
+    backgroundColor: 'transparent',
+  },
+  blurClipper: {
+    borderRadius: 30,
+    overflow: 'hidden',
+    minWidth: 260, // Desktop/Web wide pill
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(30, 40, 35, 0.85)',
+  },
+  blurClipperMinimized: {
+    minWidth: 0,
+  },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    zIndex: 9999,
-    // subtle amber bottom border to distinguish from content
-    borderBottomWidth: 1.5,
-    borderBottomColor: '#F6CC63',
+    paddingVertical: 10,
   },
-  navBtn: {
+  leftSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(246,204,99,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(246,204,99,0.35)',
+    gap: 8,
+    paddingLeft: 4,
   },
-  navBtnText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#F6CC63',
-    letterSpacing: 0.3,
-  },
-  centerLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  adminDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#4ADE80',
+    shadowColor: '#4ADE80',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 2,
   },
   adminLabel: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: 'rgba(255,255,255,0.6)',
-    letterSpacing: 1.5,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 1.2,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  switchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F6CC63',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  switchBtnMinimized: {
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  switchBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1A3D2B',
   },
   minimizeBtn: {
-    padding: 4,
-  },
-  // Minimized draggable bubble
-  bubble: {
-    position: 'absolute',
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#1A3D2B',
-    zIndex: 9999,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
-    borderWidth: 2,
-    borderColor: '#F6CC63',
-  },
-  bubbleInner: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
   },
 });

@@ -113,14 +113,17 @@ export default function OtpVerifyScreen() {
       }
 
       // OTP verified — now create the Firebase Auth account + Firestore user doc
-      let uid = 'user_' + Date.now();
+      // Fix: Generate a STABLE uid using the email so their cart data survives logouts!
+      const stableUidFallback = 'user_' + params.email!.toLowerCase().replace(/[^a-z0-9]/g, '');
+      let uid = stableUidFallback;
+      
       try {
         const cred = await createUserWithEmailAndPassword(auth, params.email!, params.password!);
         uid = cred.user.uid;
       } catch (authErr: any) {
-        // If already exists (e.g. retry), get the uid from existing session
+        // If already exists (e.g. retry), get the uid from existing session or fallback to the stable one
         if (authErr.code !== 'auth/email-already-in-use') throw authErr;
-        uid = auth.currentUser?.uid || uid;
+        uid = auth.currentUser?.uid || stableUidFallback;
       }
 
       await setDoc(doc(db, 'users', uid), {
