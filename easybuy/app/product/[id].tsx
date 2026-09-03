@@ -180,12 +180,11 @@ export default function ProductDetailScreen() {
       return;
     }
 
-    for (let i = 0; i < quantity; i++) {
-      globalAddToCart({
-        id: prod.id, title: prod.title, price: prod.price,
-        originalPrice: prod.originalPrice, image: prod.images[0] || prod.aboutImage,
-      });
-    }
+    globalAddToCart({
+      id: prod.id, title: prod.title, price: prod.price,
+      originalPrice: prod.originalPrice, image: prod.images[0] || prod.aboutImage,
+      quantity: quantity,
+    });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setToastMsg(`✓ Added ${quantity}x to Cart!`);
     setTimeout(() => setToastMsg(null), 2800);

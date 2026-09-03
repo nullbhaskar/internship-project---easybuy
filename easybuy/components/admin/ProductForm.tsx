@@ -13,7 +13,6 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { C, R, S } from './adminTheme';
 import { AdminCategory, AdminProduct } from './adminTypes';
 
 interface ProductFormProps {
@@ -31,488 +30,523 @@ export const ProductForm: React.FC<ProductFormProps> = ({
   onSave,
   onCancel,
 }) => {
-  const [title,       setTitle]       = useState('');
-  const [price,       setPrice]       = useState('');
-  const [mrp,         setMrp]         = useState('');
-  const [stock,       setStock]       = useState('');
-  const [categoryId,  setCategoryId]  = useState('');
-  const [brand,       setBrand]       = useState('');
-  const [thumbnail,   setThumbnail]   = useState('');
-  const [description, setDescription] = useState('');
-  const [isQuick,     setIsQuick]     = useState(false);
-  const [error,       setError]       = useState('');
-  const [imgFailed,   setImgFailed]   = useState(false);
+  const slideAnim = useRef(new Animated.Value(300)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const slideAnim = useRef(new Animated.Value(60)).current;
-  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  // Local state
+  const [title, setTitle] = useState('');
+  const [price, setPrice] = useState('');
+  const [mrp, setMrp] = useState('');
+  const [stock, setStock] = useState('');
+  const [brand, setBrand] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [categoryName, setCategoryName] = useState('');
+  const [thumbnail, setThumbnail] = useState('');
+  const [description, setDescription] = useState('');
+  const [isQuickBuy, setIsQuickBuy] = useState(false);
+  const [error, setError] = useState('');
+  
+  // Calculate discount percentage
+  const mrpNum = parseFloat(mrp) || 0;
+  const priceNum = parseFloat(price) || 0;
+  const discountPercent = mrpNum > 0 && priceNum < mrpNum 
+    ? Math.round(((mrpNum - priceNum) / mrpNum) * 100) 
+    : 0;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 280, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, friction: 8,   useNativeDriver: true }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      })
     ]).start();
-  }, []);
 
-  const [categoryName, setCategoryName] = useState('');
-
-  useEffect(() => {
     if (product) {
-      setTitle(product.title || product.name || '');
-      setPrice(product.price?.toString() || '');
-      setMrp(product.mrp?.toString() || '');
-      setStock(product.stock?.toString() || '');
-      setCategoryId(product.categoryId || '');
-      setCategoryName(product.categoryName || '');
-      setBrand(product.brand || '');
-      setThumbnail(product.thumbnail || product.image || (product.images && product.images[0]) || '');
-      setDescription(product.description || product.longDescription || '');
-      setIsQuick(!!(product.isQuickDelivery || product.isQuickBuy));
+      setTitle(String(product.title || (product as any).name || ''));
+      setPrice(String(product.price ?? (product as any).priceNumber ?? ''));
+      setMrp(String(product.mrp ?? product.price ?? (product as any).priceNumber ?? ''));
+      setStock(String(product.stock ?? 0));
+      setBrand(String(product.brand || ''));
+      setCategoryId(String(product.categoryId || ''));
+      setCategoryName(String(product.categoryName || ''));
+      setThumbnail(String(product.thumbnail || product.image || (product as any).imageUrl || ''));
+      setDescription(String(product.description || ''));
+      setIsQuickBuy(product.isQuickBuy ?? false);
     } else {
-      setTitle(''); setPrice(''); setMrp(''); setStock('');
-      setCategoryId(''); setCategoryName(''); setBrand(''); setThumbnail('');
-      setDescription(''); setIsQuick(false);
+      if (categories.length > 0) {
+        setCategoryId(String(categories[0].categoryId || categories[0].id || ''));
+        setCategoryName(String(categories[0].name || ''));
+      }
     }
-    setError(''); setImgFailed(false);
-  }, [product]);
-
-  const priceNum = Number(price);
-  const mrpNum   = Number(mrp);
-  const discount = mrpNum > 0 && priceNum > 0 && mrpNum > priceNum
-    ? Math.round(((mrpNum - priceNum) / mrpNum) * 100)
-    : 0;
+  }, [product, categories]);
 
   const handleSubmit = () => {
     setError('');
-    if (!title.trim())                           { setError('Product name is required.'); return; }
-    if (!price.trim() || isNaN(priceNum))        { setError('Valid selling price is required.'); return; }
-    if (!mrp.trim()   || isNaN(mrpNum))          { setError('Valid MRP is required.'); return; }
-    if (!stock.trim() || isNaN(Number(stock)))   { setError('Valid stock quantity is required.'); return; }
-    if (priceNum > mrpNum)                       { setError('Selling price cannot exceed MRP.'); return; }
+    if (!title || !title.trim()) { setError('Product name is required.'); return; }
+    if (!price.trim() || isNaN(priceNum)) { setError('Valid selling price is required.'); return; }
+    if (!mrp.trim() || isNaN(mrpNum)) { setError('Valid MRP is required.'); return; }
+    if (!stock.trim() || isNaN(Number(stock))) { setError('Valid stock quantity is required.'); return; }
+    if (priceNum > mrpNum) { setError('Selling price cannot exceed MRP.'); return; }
 
     const selectedCat = categories.find(c => (c.categoryId || c.id) === categoryId);
     const resolvedCatName = selectedCat ? selectedCat.name : (categoryName || categoryId);
 
-    const img = thumbnail.trim();
-
     onSave({
-      id:                 product?.id || '',
-      productId:          product?.id || (product as any)?.productId || '',
-      title:              title.trim(),
-      name:               title.trim(),
-      shortTitle:         title.trim(),
-      brand:              brand.trim(),
-      price:              priceNum,
-      priceNum:           priceNum,
-      priceNumber:        priceNum,
-      mrp:                mrpNum,
-      originalPrice:      `₹${mrpNum}`,
-      originalPriceNum:   mrpNum,
-      discountPct:        discount > 0 ? `${discount}% OFF` : '',
-      discountPercentage: discount,
-      stock:              Number(stock),
-      stockStatus:        Number(stock) > 5 ? 'In Stock' : Number(stock) > 0 ? 'Low Stock' : 'Out of Stock',
-      categoryId:         categoryId.trim(),
-      categoryName:       (resolvedCatName || categoryId).trim(),
-      thumbnail:          img,
-      image:              img,
-      imageUrl:           img,
-      images:             img ? [img] : [],
-      description:        description.trim(),
-      longDescription:    description.trim(),
-      stateId:            product?.stateId || (product as any)?.stateId || 'HR',
-      stateName:          product?.stateName || (product as any)?.stateName || 'Haryana',
-      city:               product?.city || (product as any)?.city || 'Gurugram',
-      locality:           product?.locality || (product as any)?.locality || '',
-      isQuickDelivery:    isQuick,
-      isQuickBuy:         isQuick,
-      updatedAt:          new Date().toISOString(),
-      createdAt:          product?.createdAt || new Date().toISOString(),
+      id: product?.id || '',
+      title: title.trim(),
+      price: priceNum,
+      mrp: mrpNum,
+      stock: parseInt(stock, 10),
+      brand: brand.trim(),
+      categoryId,
+      categoryName: resolvedCatName,
+      thumbnail: thumbnail.trim(),
+      image: thumbnail.trim(),
+      description: description.trim(),
+      isQuickBuy,
+      createdAt: product?.createdAt || new Date().toISOString(),
     });
   };
 
-  const isEditing = !!product;
-
-  const FieldLabel = ({ text, required }: { text: string; required?: boolean }) => (
-    <Text style={fStyles.fieldLabel}>
-      {text}
-      {required && <Text style={{ color: C.danger }}> *</Text>}
-    </Text>
-  );
-
   return (
-    <Animated.View style={[fStyles.container, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-      {/* Header */}
-      <View style={fStyles.header}>
-        <View style={fStyles.headerLeft}>
-          <View style={fStyles.headerIcon}>
-            <Ionicons name={isEditing ? 'pencil' : 'add'} size={18} color={C.primary} />
+    <Modal visible={true} transparent={true} animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.overlay}>
+        <Animated.View style={[styles.modalCard, { transform: [{ translateY: slideAnim }] }]}>
+          
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <View style={styles.iconBox}>
+                <Ionicons name={product ? "create-outline" : "add-outline"} size={20} color="#4F46E5" />
+              </View>
+              <View>
+                <Text style={styles.title}>{product ? 'Edit Product' : 'New Product'}</Text>
+                <Text style={styles.subtitle}>{product ? 'Update product details' : 'Add to inventory'}</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={onCancel} style={styles.closeBtn}>
+              <Ionicons name="close" size={20} color="#64748B" />
+            </TouchableOpacity>
           </View>
-          <View>
-            <Text style={fStyles.heading}>{isEditing ? 'Edit Product' : 'Add New Product'}</Text>
-            <Text style={fStyles.subHeading}>
-              {isEditing ? 'Update product details' : 'Fill in the product information'}
-            </Text>
-          </View>
-        </View>
-        <TouchableOpacity style={fStyles.closeBtn} onPress={onCancel} activeOpacity={0.8}>
-          <Ionicons name="close" size={18} color={C.textSecondary} />
-        </TouchableOpacity>
-      </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: S.lg }}>
-        {/* Image Preview */}
-        {thumbnail.length > 10 && !imgFailed ? (
-          <View style={fStyles.previewWrap}>
-            <Image
-              source={{ uri: thumbnail }}
-              style={fStyles.previewImg}
-              resizeMode="contain"
-              onError={() => setImgFailed(true)}
-            />
-            <Text style={fStyles.previewLabel}>Image Preview</Text>
-          </View>
-        ) : null}
+          <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            
+            {/* Image Preview Area */}
+            <View style={styles.imageSection}>
+              {thumbnail ? (
+                <View style={styles.imageWrapper}>
+                  <Image source={{ uri: thumbnail }} style={styles.previewImage} />
+                  <TouchableOpacity style={styles.editImageBtn}>
+                     <Ionicons name="camera-outline" size={16} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Ionicons name="image-outline" size={32} color="#94A3B8" />
+                  <Text style={styles.placeholderText}>Add Product Image</Text>
+                </View>
+              )}
+            </View>
 
-        {/* Product Name */}
-        <View>
-          <FieldLabel text="Product Name" required />
-          <TextInput
-            style={fStyles.input}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="e.g. Premium Running Shoes"
-            placeholderTextColor={C.textMuted}
-          />
-        </View>
+            {error ? (
+              <View style={{ backgroundColor: '#FEE2E2', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                <Text style={{ color: '#EF4444', fontSize: 13, fontWeight: '500' }}>{error}</Text>
+              </View>
+            ) : null}
 
-        {/* Price + MRP */}
-        <View style={fStyles.row2}>
-          <View style={fStyles.halfField}>
-            <FieldLabel text="Selling Price ₹" required />
-            <TextInput
-              style={fStyles.input}
-              value={price}
-              onChangeText={setPrice}
-              placeholder="0"
-              keyboardType="numeric"
-              placeholderTextColor={C.textMuted}
-            />
-          </View>
-          <View style={fStyles.halfField}>
-            <FieldLabel text="MRP ₹" required />
-            <TextInput
-              style={fStyles.input}
-              value={mrp}
-              onChangeText={setMrp}
-              placeholder="0"
-              keyboardType="numeric"
-              placeholderTextColor={C.textMuted}
-            />
-          </View>
-        </View>
+            {/* Form Fields */}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Product Name <Text style={styles.required}>*</Text></Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Premium Cotton T-Shirt"
+                placeholderTextColor="#94A3B8"
+                value={title}
+                onChangeText={setTitle}
+              />
+            </View>
 
-        {/* Discount Preview */}
-        {discount > 0 && (
-          <View style={fStyles.discountBox}>
-            <Ionicons name="pricetag" size={14} color={C.success} />
-            <Text style={fStyles.discountText}>{discount}% discount auto-calculated</Text>
-          </View>
-        )}
+            <View style={styles.row}>
+              <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
+                <Text style={styles.label}>Selling Price (₹) <Text style={styles.required}>*</Text></Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="0"
+                  keyboardType="numeric"
+                  placeholderTextColor="#94A3B8"
+                  value={price}
+                  onChangeText={setPrice}
+                />
+              </View>
+              <View style={[styles.formGroup, { flex: 1 }]}>
+                <Text style={styles.label}>MRP (₹) <Text style={styles.required}>*</Text></Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="0"
+                  keyboardType="numeric"
+                  placeholderTextColor="#94A3B8"
+                  value={mrp}
+                  onChangeText={setMrp}
+                />
+              </View>
+            </View>
 
-        {/* Stock + Brand */}
-        <View style={fStyles.row2}>
-          <View style={fStyles.halfField}>
-            <FieldLabel text="Stock Qty" required />
-            <TextInput
-              style={fStyles.input}
-              value={stock}
-              onChangeText={setStock}
-              placeholder="0"
-              keyboardType="numeric"
-              placeholderTextColor={C.textMuted}
-            />
-          </View>
-          <View style={fStyles.halfField}>
-            <FieldLabel text="Brand" />
-            <TextInput
-              style={fStyles.input}
-              value={brand}
-              onChangeText={setBrand}
-              placeholder="e.g. Nike"
-              placeholderTextColor={C.textMuted}
-            />
-          </View>
-        </View>
+            {discountPercent > 0 && (
+              <View style={styles.discountBadge}>
+                <Ionicons name="pricetag" size={14} color="#059669" />
+                <Text style={styles.discountText}>{discountPercent}% discount auto-calculated</Text>
+              </View>
+            )}
 
-        {/* Category */}
-        <View>
-          <FieldLabel text="Category" />
-          {categories.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
-              <View style={fStyles.catRow}>
-                {categories.map((cat) => {
+            <View style={styles.row}>
+              <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
+                <Text style={styles.label}>Stock Qty <Text style={styles.required}>*</Text></Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="0"
+                  keyboardType="numeric"
+                  placeholderTextColor="#94A3B8"
+                  value={stock}
+                  onChangeText={setStock}
+                />
+              </View>
+              <View style={[styles.formGroup, { flex: 1 }]}>
+                <Text style={styles.label}>Brand</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Nike"
+                  placeholderTextColor="#94A3B8"
+                  value={brand}
+                  onChangeText={setBrand}
+                />
+              </View>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+                {categories.map(cat => {
                   const cId = cat.categoryId || cat.id;
                   const isActive = categoryId === cId;
                   return (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[fStyles.catChip, isActive && fStyles.catChipActive]}
-                      onPress={() => {
-                        setCategoryId(cId);
-                        setCategoryName(cat.name || cId);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[fStyles.catChipText, isActive && fStyles.catChipTextActive]}>
-                        {cat.name || cId}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                    onPress={() => setCategoryId(cId)}
+                  >
+                    <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
+                      {cat.name}
+                    </Text>
+                  </TouchableOpacity>
+                )})}
+              </ScrollView>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Image URL</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="https://..."
+                placeholderTextColor="#94A3B8"
+                value={thumbnail}
+                onChangeText={setThumbnail}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Description</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Product details..."
+                placeholderTextColor="#94A3B8"
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                textAlignVertical="top"
+              />
+            </View>
+
+            <View style={styles.switchRow}>
+              <View>
+                <Text style={styles.switchLabel}>QuickBuy (10-20 min)</Text>
+                <Text style={styles.switchSub}>Enable express delivery for this product</Text>
               </View>
-            </ScrollView>
-          ) : (
-            <TextInput
-              style={fStyles.input}
-              value={categoryId}
-              onChangeText={setCategoryId}
-              placeholder="Category ID"
-              placeholderTextColor={C.textMuted}
-            />
-          )}
-        </View>
-
-        {/* Image URL */}
-        <View>
-          <FieldLabel text="Image URL" />
-          <TextInput
-            style={fStyles.input}
-            value={thumbnail}
-            onChangeText={(v) => { setThumbnail(v); setImgFailed(false); }}
-            placeholder="https://..."
-            placeholderTextColor={C.textMuted}
-            autoCapitalize="none"
-            keyboardType="url"
-          />
-        </View>
-
-        {/* Description */}
-        <View>
-          <FieldLabel text="Description" />
-          <TextInput
-            style={[fStyles.input, fStyles.textArea]}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Describe the product..."
-            placeholderTextColor={C.textMuted}
-            multiline
-          />
-        </View>
-
-        {/* QuickBuy Toggle */}
-        <View style={fStyles.toggleRow}>
-          <View style={fStyles.toggleLeft}>
-            <View style={fStyles.toggleIcon}>
-              <Text style={{ fontSize: 16 }}>⚡</Text>
+              <Switch
+                value={isQuickBuy}
+                onValueChange={setIsQuickBuy}
+                trackColor={{ false: '#E2E8F0', true: '#818CF8' }}
+                thumbColor={isQuickBuy ? '#4F46E5' : '#FFFFFF'}
+              />
             </View>
-            <View>
-              <Text style={fStyles.toggleLabel}>QuickBuy (10–20 min)</Text>
-              <Text style={fStyles.toggleSub}>Enable express delivery for this product</Text>
-            </View>
+
+          </ScrollView>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={onCancel} disabled={loading}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSubmit} disabled={loading}>
+              <Text style={styles.saveBtnText}>{loading ? 'Saving...' : 'Save Product'}</Text>
+            </TouchableOpacity>
           </View>
-          <Switch
-            value={isQuick}
-            onValueChange={setIsQuick}
-            trackColor={{ false: C.surface3, true: C.primaryDim }}
-            thumbColor={isQuick ? C.primary : C.textMuted}
-          />
-        </View>
-
-        {/* Error */}
-        {error ? (
-          <View style={fStyles.errorBox}>
-            <Ionicons name="alert-circle-outline" size={16} color={C.danger} />
-            <Text style={fStyles.errorText}>{error}</Text>
-          </View>
-        ) : null}
-
-        {/* Actions */}
-        <View style={fStyles.actions}>
-          <TouchableOpacity style={fStyles.cancelBtn} onPress={onCancel} activeOpacity={0.8}>
-            <Text style={fStyles.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[fStyles.saveBtn, loading && fStyles.saveBtnDisabled]}
-            onPress={handleSubmit}
-            disabled={loading}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name={loading ? 'hourglass-outline' : 'checkmark-circle-outline'}
-              size={18}
-              color="#fff"
-            />
-            <Text style={fStyles.saveBtnText}>
-              {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Product'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ height: 8 }} />
-      </ScrollView>
-    </Animated.View>
+          
+        </Animated.View>
+      </View>
+    </Modal>
   );
-};
+}
 
-const fStyles = StyleSheet.create({
-  container: {
-    backgroundColor: C.surface2,
-    borderRadius: R.card,
-    padding: S.xl,
-    marginBottom: S.xl,
-    borderWidth: 1,
-    borderColor: C.border,
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    width: '100%',
+    maxWidth: 500,
+    borderRadius: 24,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.15,
+    shadowRadius: 40,
+    elevation: 20,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: S.xl,
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: S.md },
-  headerIcon: {
-    width: 38, height: 38, borderRadius: 12,
-    backgroundColor: C.primaryDim,
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1, borderColor: C.primaryGlow,
-  },
-  heading:    { color: C.textPrimary, fontSize: 17, fontWeight: '800' },
-  subHeading: { color: C.textMuted, fontSize: 12, marginTop: 1 },
-  closeBtn: {
-    width: 34, height: 34, borderRadius: 11,
-    backgroundColor: C.surface,
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1, borderColor: C.border,
-  },
-
-  previewWrap: {
     alignItems: 'center',
-    backgroundColor: C.surface,
-    borderRadius: R.card,
-    padding: S.md,
-    borderWidth: 1,
-    borderColor: C.border,
+    padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  previewImg:   { width: 120, height: 120, borderRadius: R.card2 },
-  previewLabel: { color: C.textMuted, fontSize: 11, marginTop: S.xs, fontWeight: '600' },
-
-  fieldLabel: {
-    color: C.textSecondary,
-    fontSize: 11,
-    fontWeight: '800',
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  iconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  subtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 24,
+  },
+  imageSection: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  imageWrapper: {
+    width: 140,
+    height: 140,
+    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  editImageBtn: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePlaceholder: {
+    width: 140,
+    height: 140,
+    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  formGroup: {
+    marginBottom: 20,
+  },
+  row: {
+    flexDirection: 'row',
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 8,
+    letterSpacing: 0.3,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: S.xs,
+  },
+  required: {
+    color: '#EF4444',
   },
   input: {
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: C.border2,
-    borderRadius: R.input,
-    paddingHorizontal: S.lg,
-    paddingVertical: S.md,
-    color: C.textPrimary,
-    backgroundColor: C.surface,
-    fontSize: 14,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    color: '#0F172A',
   },
-  textArea:   { minHeight: 88, textAlignVertical: 'top', paddingTop: S.md },
-  row2:       { flexDirection: 'row', gap: S.sm },
-  halfField:  { flex: 1 },
-
-  catRow: { flexDirection: 'row', gap: S.sm, paddingBottom: 4 },
-  catChip: {
-    paddingHorizontal: S.md,
-    paddingVertical: S.xs + 2,
-    borderRadius: R.pill,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border2,
+  textArea: {
+    height: 100,
+    paddingTop: 16,
   },
-  catChipActive: {
-    backgroundColor: C.primaryDim,
-    borderColor: C.primary,
-  },
-  catChipText:       { color: C.textMuted, fontSize: 12, fontWeight: '600' },
-  catChipTextActive: { color: C.primary, fontWeight: '800' },
-
-  discountBox: {
+  discountBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: S.xs,
-    backgroundColor: C.successDim,
-    borderRadius: R.input,
-    paddingHorizontal: S.md,
-    paddingVertical: S.xs + 2,
-    borderWidth: 1,
-    borderColor: `${C.success}33`,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 20,
+    marginTop: -8,
   },
-  discountText: { color: C.success, fontSize: 12, fontWeight: '700' },
-
-  toggleRow: {
+  discountText: {
+    color: '#059669',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  categoryScroll: {
     flexDirection: 'row',
-    alignItems: 'center',
+    marginTop: 4,
+  },
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  categoryChipActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#818CF8',
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748B',
+  },
+  categoryChipTextActive: {
+    color: '#4F46E5',
+    fontWeight: '600',
+  },
+  switchRow: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: C.surface,
-    borderRadius: R.card2,
-    padding: S.md,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  toggleLeft: { flexDirection: 'row', alignItems: 'center', gap: S.sm, flex: 1 },
-  toggleIcon: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: C.warningDim,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  toggleLabel: { color: C.textPrimary, fontSize: 13, fontWeight: '700' },
-  toggleSub:   { color: C.textMuted, fontSize: 11, marginTop: 1 },
-
-  errorBox: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: S.sm,
-    backgroundColor: C.dangerDim,
-    borderRadius: R.card2,
-    padding: S.md,
+    backgroundColor: '#F8FAFC',
+    padding: 16,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(244,63,94,0.2)',
+    borderColor: '#E2E8F0',
+    marginBottom: 10,
   },
-  errorText: { color: C.danger, fontSize: 13, fontWeight: '600', flex: 1 },
-
-  actions: {
+  switchLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  switchSub: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  footer: {
     flexDirection: 'row',
-    gap: S.md,
-    marginTop: S.xs,
+    padding: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    backgroundColor: '#FAFAFA',
+    gap: 12,
   },
   cancelBtn: {
     flex: 1,
-    paddingVertical: S.lg,
-    borderRadius: R.btn,
-    backgroundColor: C.surface,
-    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: C.border2,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
   },
-  cancelBtnText: { color: C.textSecondary, fontWeight: '700', fontSize: 14 },
+  cancelBtnText: {
+    color: '#64748B',
+    fontSize: 15,
+    fontWeight: '600',
+  },
   saveBtn: {
     flex: 2,
-    flexDirection: 'row',
-    paddingVertical: S.lg,
-    borderRadius: R.btn,
-    backgroundColor: C.primary,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: '#4F46E5',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: S.sm,
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  saveBtnDisabled: { opacity: 0.5 },
-  saveBtnText:     { color: '#fff', fontWeight: '800', fontSize: 15 },
+  saveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });

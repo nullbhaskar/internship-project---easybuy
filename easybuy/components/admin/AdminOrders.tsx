@@ -81,9 +81,19 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
     </>
   );
 
+  const formatOrderDate = (createdAt: any) => {
+    if (!createdAt) return 'Unknown date';
+    // Firestore Timestamp object
+    if (createdAt?.seconds) return new Date(createdAt.seconds * 1000).toLocaleDateString('en-IN');
+    // ISO string
+    if (typeof createdAt === 'string') return new Date(createdAt).toLocaleDateString('en-IN');
+    return 'Unknown date';
+  };
+
   const renderOrder = ({ item: o }: { item: any }) => {
     const colors = getStatusColor(o.status);
-    const date = new Date(o.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const date = formatOrderDate(o.createdAt);
+    const statusLower = (o.status || '').toLowerCase();
     
     return (
       <View style={styles.orderCard}>
@@ -108,7 +118,7 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
           <Text style={styles.orderTotal}>₹{(parseFloat(String(o.totalAmount).replace(/[^0-9.]/g, '')) || 0).toFixed(2)}</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-          {o.status !== 'Shipped' && o.status !== 'Delivered' && o.status !== 'Cancelled' && (
+          {statusLower !== 'shipped' && statusLower !== 'delivered' && statusLower !== 'cancelled' && (
             <TouchableOpacity 
               style={{ backgroundColor: '#EFF6FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#BFDBFE' }}
               onPress={() => onUpdateStatus && onUpdateStatus(o.id, 'Shipped')}
@@ -116,7 +126,7 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
               <Text style={{ fontSize: 12, fontWeight: '600', color: '#1D4ED8' }}>Mark Shipped</Text>
             </TouchableOpacity>
           )}
-          {o.status === 'Shipped' && (
+          {statusLower === 'shipped' && (
             <TouchableOpacity 
               style={{ backgroundColor: '#F0FDF4', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#BBF7D0' }}
               onPress={() => onUpdateStatus && onUpdateStatus(o.id, 'Delivered')}

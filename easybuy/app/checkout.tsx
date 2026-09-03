@@ -69,6 +69,13 @@ export default function CheckoutScreen() {
     clearCart,
   } = useCart();
 
+  // Redirect home if cart becomes empty during checkout
+  React.useEffect(() => {
+    if (cartItems.length === 0 && !isSubmitting) {
+      router.replace('/home');
+    }
+  }, [cartItems]);
+
   const { selectedAddress, openLocationModal, saveAddress } = useAddress();
 
   // Physical Address Modal State
@@ -184,6 +191,15 @@ export default function CheckoutScreen() {
 
   // Place Order Action
   const handlePlaceOrder = async () => {
+    if (selectedAddress.addressId === 'empty' || !selectedAddress.receiverName) {
+      Alert.alert(
+        'No Delivery Address',
+        'Please add a delivery address before placing your order.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     // Use auth.currentUser directly as fallback - more reliable on web
     const activeUser: any = user || auth.currentUser;
 

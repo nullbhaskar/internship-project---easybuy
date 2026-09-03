@@ -71,8 +71,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (activeUid) {
           const userDocRef = doc(db, 'users', activeUid);
           const snap = await getDoc(userDocRef);
-          if (snap.exists() && snap.data().cart && snap.data().cart.length > 0) {
-            setCartItems(snap.data().cart);
+          if (snap.exists() && snap.data().cart !== undefined) {
+            // Always trust Firestore over AsyncStorage (even empty array is valid)
+            const firestoreCart = snap.data().cart || [];
+            setCartItems(firestoreCart);
             loadedFromFirestore = true;
           }
         }

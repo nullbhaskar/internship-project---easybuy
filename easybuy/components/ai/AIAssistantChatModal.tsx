@@ -107,8 +107,8 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
   }, [isListening]);
 
   const sendMessage = async (textToSend?: string) => {
-    const query = (textToSend || inputText).trim();
-    if (!query || isTyping) return;
+    const userQuery = (textToSend || inputText).trim();
+    if (!userQuery || isTyping) return;
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setInputText('');
@@ -116,7 +116,7 @@ export const AIAssistantChatModal: React.FC<AIAssistantChatModalProps> = ({
     const userMsg: ChatMessage = {
       id: `usr_${Date.now()}`,
       sender: 'user',
-      text: query,
+      text: userQuery,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 

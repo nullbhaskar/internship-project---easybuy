@@ -856,11 +856,15 @@ export const LocationPickerModal: React.FC = () => {
               try {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
                 const { status } = await Location.requestForegroundPermissionsAsync();
-                if (status !== 'granted') return;
+                if (status !== 'granted') {
+                  Alert.alert('Permission Denied', 'Please enable location services in your settings to use GPS tracking, or enter your address manually.');
+                  return;
+                }
                 const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
                 setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
               } catch (e) {
                 console.log('GPS error:', e);
+                Alert.alert('Location Error', 'Unable to fetch your current location.');
               }
             }}
             style={{

@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AdminSection } from './adminTypes';
+import { useMaintenance } from '../../context/MaintenanceContext';
 
 interface AdminHeaderProps {
   activeSection: AdminSection;
@@ -29,18 +30,20 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   isFirebaseConnected = true,
 }) => {
   const { title } = SECTION_TITLES[activeSection] || SECTION_TITLES.dashboard;
+  const { isMaintenanceMode, toggleMaintenanceMode } = useMaintenance();
 
   return (
     <View style={styles.container}>
-      {/* Left � Logo + Title */}
+      {/* Left – Logo + Title */}
       <View style={styles.left}>
-        <View style={styles.logoWrap}>
-          <Ionicons name="storefront-outline" size={16} color="#4F46E5" />
-        </View>
-        <Text style={styles.appName}>{title}</Text>
+        {/* SECRET CORNER BUTTON TO TOGGLE MAINTENANCE */}
+        <TouchableOpacity style={styles.logoWrap} onLongPress={toggleMaintenanceMode} delayLongPress={1000}>
+          <Ionicons name={isMaintenanceMode ? "warning" : "storefront-outline"} size={16} color={isMaintenanceMode ? "#F59E0B" : "#4F46E5"} />
+        </TouchableOpacity>
+        <Text style={styles.appName}>{title} {isMaintenanceMode && '(DOWN)'}</Text>
       </View>
 
-      {/* Right � Actions & Profile */}
+      {/* Right – Actions & Profile */}
       <View style={styles.right}>
         <TouchableOpacity style={styles.iconBtn}>
           <Ionicons name="search" size={20} color="#475569" />

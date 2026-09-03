@@ -14,6 +14,9 @@ import { WishlistDrawerModal } from '../components/wishlist/WishlistDrawerModal'
 import { LocationPickerModal } from '../components/location';
 import { AdminFloatingBar } from '../components/admin/AdminFloatingBar';
 import { StickyCartBar } from '../components/cart/StickyCartBar';
+import OfflineScreen from '../components/OfflineScreen';
+import { MaintenanceProvider } from '../context/MaintenanceContext';
+import MaintenanceScreen from '../components/MaintenanceScreen';
 
 import { ProductTransitionProvider } from '../context/ProductTransitionContext';
 
@@ -118,32 +121,36 @@ export default function RootLayout() {
               <CartProvider>
                 <WishlistProvider>
                   <ProductTransitionProvider>
-                    <Stack
-                      screenOptions={{
-                        headerShown: false,
-                        animation: 'fade',
-                        animationDuration: 240,
-                      }}
-                    >
-                      <Stack.Screen name="index" options={{ animation: 'fade' }} />
-                      <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
-                      <Stack.Screen name="login" options={{ animation: 'slide_from_bottom' }} />
-                      <Stack.Screen name="register" options={{ animation: 'slide_from_right' }} />
-                      <Stack.Screen name="forgot-password" options={{ animation: 'slide_from_right' }} />
-                      <Stack.Screen name="admin" options={{ animation: 'slide_from_bottom' }} />
-                      <Stack.Screen name="home" options={{ animation: 'fade' }} />
-                      <Stack.Screen name="profile" options={{ animation: 'fade_from_bottom' }} />
-                      <Stack.Screen name="quickbuy" options={{ animation: 'slide_from_bottom', animationDuration: 260 }} />
-                      <Stack.Screen name="orders" options={{ animation: 'slide_from_right' }} />
-                      <Stack.Screen name="all-items" options={{ animation: 'slide_from_right' }} />
-                      <Stack.Screen name="offers" options={{ animation: 'fade_from_bottom' }} />
-                      <Stack.Screen name="add-address" options={{ animation: 'slide_from_bottom' }} />
-                      <Stack.Screen name="product/[id]" options={{ animation: 'none' }} />
-                    </Stack>
-                    <WishlistDrawerModal />
-                    <LocationPickerModal />
-                    <AdminFloatingBar />
-                    <StickyCartBar />
+                    <MaintenanceProvider>
+                      <Stack
+                        screenOptions={{
+                          headerShown: false,
+                          animation: 'fade',
+                          animationDuration: 240,
+                        }}
+                      >
+                        <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                        <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+                        <Stack.Screen name="login" options={{ animation: 'slide_from_bottom' }} />
+                        <Stack.Screen name="register" options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="forgot-password" options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="admin" options={{ animation: 'slide_from_bottom' }} />
+                        <Stack.Screen name="home" options={{ animation: 'fade' }} />
+                        <Stack.Screen name="profile" options={{ animation: 'fade_from_bottom' }} />
+                        <Stack.Screen name="quickbuy" options={{ animation: 'slide_from_bottom', animationDuration: 260 }} />
+                        <Stack.Screen name="orders" options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="all-items" options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="offers" options={{ animation: 'fade_from_bottom' }} />
+                        <Stack.Screen name="add-address" options={{ animation: 'slide_from_bottom' }} />
+                        <Stack.Screen name="product/[id]" options={{ animation: 'none' }} />
+                      </Stack>
+                      <WishlistDrawerModal />
+                      <LocationPickerModal />
+                      <AdminFloatingBar />
+                      <StickyCartBar />
+                      <OfflineScreen />
+                      <MaintenanceScreen />
+                    </MaintenanceProvider>
                   </ProductTransitionProvider>
                 </WishlistProvider>
               </CartProvider>

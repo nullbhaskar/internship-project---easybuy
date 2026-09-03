@@ -25,6 +25,7 @@ import { useWishlist } from '../../context/WishlistContext';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../services/firebase';
 import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { useRouter } from 'expo-router';
 
 const { width, height } = Dimensions.get('window');
 
@@ -44,6 +45,7 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
   const { addToCart } = useCart();
   const { toggleWishlist } = useWishlist();
   const { user } = useAuth();
+  const router = useRouter();
   
   // VOICE PICKER STATE
   const [showVoicePicker, setShowVoicePicker] = useState(false);
@@ -55,11 +57,15 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
   const ring2Anim = useRef(new Animated.Value(1)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
 
+  // Animation state for entering/exiting
+  const modalY = useRef(new Animated.Value(height)).current;
+  const modalOpacity = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     // Load voices on mount
     Speech.getAvailableVoicesAsync().then(voices => {
       // STRICT FILTER: Only show Google Hindi or any Hindi voice if Google Hindi is not found
-      let hindiVoices = voices.filter(v => v.name.includes('Google') && (v.name.includes('हिन्दी') || v.name.includes('Hindi')));
+      let hindiVoices = voices.filter(v => v.name.includes('Google') && (v.name.includes('hi') || v.name.includes('Hindi')));
       if (hindiVoices.length === 0) {
         hindiVoices = voices.filter(v => v.language.includes('hi'));
       }
@@ -108,19 +114,31 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
   }, [status]);
 
   useEffect(() => {
-    if (visible && !showVoicePicker) {
-      const hour = new Date().getHours();
-      let greeting = 'Good evening';
-      if (hour < 12) greeting = 'Good morning';
-      else if (hour < 17) greeting = 'Good afternoon';
-      
-      const welcomeText = greeting + ' Bhaskar. I am your EasyBuy Assistant. How can I help you today?';
-      
-      setHistory([{ role: 'assistant', content: welcomeText }]);
-      setAiSpeechText(welcomeText);
-      setStatus('SPEAKING');
-      Animated.timing(textOpacity, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-      speakText(welcomeText);
+    if (visible) {
+      // Trigger open animation
+      Animated.parallel([
+        Animated.timing(modalY, { toValue: 0, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(modalOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start();
+
+      if (!showVoicePicker) {
+        const hour = new Date().getHours();
+        let greeting = 'Good evening';
+        if (hour < 12) greeting = 'Good morning';
+        else if (hour < 17) greeting = 'Good afternoon';
+        
+        const welcomeText = greeting + ' Bhaskar. I am your EasyBuy Assistant. How can I help you today?';
+        
+        setHistory([{ role: 'assistant', content: welcomeText }]);
+        setAiSpeechText(welcomeText);
+        setStatus('SPEAKING');
+        Animated.timing(textOpacity, { toValue: 1, duration: 800, useNativeDriver: true }).start();
+        speakText(welcomeText);
+      }
+    } else {
+      // Reset values when hidden abruptly
+      modalY.setValue(height);
+      modalOpacity.setValue(0);
     }
   }, [visible]);
 
@@ -248,10 +266,26 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
     }
   };
 
+  const triggerCloseAnimation = () => {
+    Animated.parallel([
+      Animated.timing(modalY, { toValue: height * 0.4, duration: 350, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+      Animated.timing(modalOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start(() => {
+      stopAndClose();
+    });
+  };
+
   const stopAndClose = () => {
     Speech.stop();
     voiceRecognition.stop();
     onClose();
+  };
+
+  const navigateToProfile = () => {
+    triggerCloseAnimation();
+    setTimeout(() => {
+      router.push('/profile' as any);
+    }, 300);
   };
 
   if (!visible) return null;
@@ -262,26 +296,27 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
   else if (status === 'SPEAKING') activeColor = '#d500f9';
 
   return (
-    <Modal visible={visible} animationType="fade" transparent={true}>
+    <Modal visible={visible} animationType="none" transparent={true}>
       
-<BlurView intensity={90} tint="dark" style={styles.absoluteFill}>
+<Animated.View style={[{ flex: 1, opacity: modalOpacity, transform: [{ translateY: modalY }] }]}>
+<BlurView intensity={100} tint="dark" style={styles.absoluteFill}>
   <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
     <View style={styles.modalWindow}>
       
-      {/* Header */}
-      
+      {/* Sleek Minimal Header */}
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <TouchableOpacity style={styles.iconBtnDark} onPress={onClose}>
-            <Ionicons name="chevron-down" size={20} color="#fff" />
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtnMinimal} onPress={triggerCloseAnimation}>
+          <Ionicons name="chevron-down" size={24} color="#a1a1aa" />
+        </TouchableOpacity>
+        
+        <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>EasyBuy AI</Text>
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtnDark} onPress={() => setShowVoicePicker(!showVoicePicker)}>
             <Ionicons name="settings-outline" size={18} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtnCyan} onPress={onClose}>
+          <TouchableOpacity style={styles.iconBtnCyan} onPress={navigateToProfile}>
             <Ionicons name="person-outline" size={18} color="#000" />
           </TouchableOpacity>
         </View>
@@ -306,12 +341,18 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
         </View>
       ) : (
         <>
-          {/* Orb Container */}
+          {/* Orb Container with subtle glow */}
           <View style={styles.visualizerContainer}>
+            <Animated.View style={[styles.glowBackground, {
+                transform: [{ scale: pulseAnim }],
+                opacity: status === 'IDLE' ? 0 : 0.6,
+                backgroundColor: activeColor,
+                shadowColor: activeColor,
+            }]} />
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => { if(status==='LISTENING'){voiceRecognition.stop();} else if(status==='IDLE'){startListening();} }}
-              style={[styles.orbWrapper, { width: 300, height: 300, alignItems: 'center', justifyContent: 'center' }]}
+              style={[styles.orbWrapper, { width: 320, height: 320, alignItems: 'center', justifyContent: 'center' }]}
             >
               <CSSOrbWebView status={status} inputTextLength={inputText.length} volume={volume} />
             </TouchableOpacity>
@@ -349,6 +390,7 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
     </View>
   </KeyboardAvoidingView>
 </BlurView>
+</Animated.View>
 
     </Modal>
   );
@@ -357,83 +399,114 @@ export function GeminiVoiceMode({ visible, onClose, stateName }: GeminiVoiceMode
 
 
 const styles = StyleSheet.create({
-  absoluteFill: { flex: 1, padding: 8 },
-  container: { flex: 1 },
+  absoluteFill: { flex: 1, padding: 0 },
+  container: { flex: 1, backgroundColor: '#000000' },
   modalWindow: {
     flex: 1,
-    backgroundColor: '#0D1117', // Match the exact dark space-gray of the mockup
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: '#7129E6', // Bright neon purple border
+    backgroundColor: '#000000',
     overflow: 'hidden',
     justifyContent: 'space-between',
-    shadowColor: '#7129E6',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 24,
-    paddingHorizontal: 24,
-    width: '100%'
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingHorizontal: 20,
+    width: '100%',
+    zIndex: 10,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
   },
   headerTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: -0.2,
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+    letterSpacing: 0.5,
     fontFamily: Platform.OS === 'web' ? 'sans-serif' : 'System',
+    opacity: 0.9,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
+  },
+  iconBtnMinimal: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconBtnDark: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.03)',
   },
   iconBtnCyan: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#38D8D3', // Brighter cyan to match
+    backgroundColor: '#00e5ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  voicePickerContainer: { flex: 1, padding: 20, marginTop: 20 },
-  voicePickerTitle: { color: 'white', fontWeight: '600', fontSize: 20, marginBottom: 15, textAlign: 'center' },
+  profileAvatarBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e4e4e7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voicePickerContainer: { flex: 1, padding: 20, marginTop: 40 },
+  voicePickerTitle: { color: 'white', fontWeight: '500', fontSize: 18, marginBottom: 20, textAlign: 'center' },
   voiceList: { flex: 1 },
-  voiceItem: { padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, marginBottom: 10 },
-  voiceItemActive: { backgroundColor: '#7129E6' },
-  voiceItemText: { color: 'white', fontWeight: '500', fontSize: 14 },
-  visualizerContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  orbWrapper: { width: 300, height: 300, alignItems: 'center', justifyContent: 'center' },
-  subtitleContainer: { paddingHorizontal: 40, minHeight: 80, justifyContent: 'center', alignItems: 'center', paddingBottom: 20 },
-  cinematicText: { fontSize: 17, color: 'rgba(255,255,255,0.85)', textAlign: 'center', lineHeight: 26, fontWeight: '400', letterSpacing: 0.2, fontFamily: Platform.OS === 'web' ? 'sans-serif' : 'System' },
-  bottomArea: { paddingHorizontal: 24, paddingBottom: 32, alignItems: 'center', width: '100%' },
+  voiceItem: { padding: 16, backgroundColor: '#1c1c1e', borderRadius: 12, marginBottom: 10 },
+  voiceItemActive: { backgroundColor: '#2c2c2e' },
+  voiceItemText: { color: 'white', fontWeight: '400', fontSize: 15 },
+  visualizerContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  glowBackground: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    ...(Platform.OS === 'web' ? { filter: 'blur(60px)' } : {
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.9,
+      shadowRadius: 50,
+      elevation: 20,
+    }) as any,
+  },
+  orbWrapper: { width: 320, height: 320, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  subtitleContainer: { paddingHorizontal: 40, minHeight: 120, justifyContent: 'center', alignItems: 'center', paddingBottom: 40 },
+  cinematicText: { 
+    fontSize: 22, 
+    color: '#ffffff', 
+    textAlign: 'center', 
+    lineHeight: 32, 
+    fontWeight: '400', 
+    letterSpacing: -0.5, 
+    fontFamily: Platform.OS === 'web' ? 'sans-serif' : 'System' 
+  },
+  bottomArea: { paddingHorizontal: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 30, alignItems: 'center', width: '100%' },
   pillInputContainer: {
     width: '100%',
-    backgroundColor: '#161B22', // Darker, sleeker pill background
+    backgroundColor: '#1c1c1e',
     borderRadius: 30,
     paddingHorizontal: 20,
-    paddingVertical: 14, // Slightly thinner
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.03)', // Subtle inner stroke
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   pillInput: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '400',
     fontFamily: Platform.OS === 'web' ? 'sans-serif' : 'System',
     flex: 1,

@@ -30,7 +30,7 @@ export default function Index() {
   }, []);
 
   // Wait for both AsyncStorage check AND AuthContext to be ready
-  if (loading || authState === 'loading') {
+  if (loading || (authState as string) === 'loading') {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2D6B42" />

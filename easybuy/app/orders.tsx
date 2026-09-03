@@ -54,6 +54,8 @@ interface OrderRecord {
   deliveredDate?: string;
   products: OrderItemProduct[];
   currentStepIndex: number;
+  createdAt?: string;
+  shippingAddress?: string;
 }
 
 // ─── BRAND DESIGN TOKENS (Shared with Home Screen) ───
@@ -156,12 +158,18 @@ export default function OrdersScreen() {
               deliveredDate: data.deliveredDate,
               products: data.products || [],
               currentStepIndex: stepIndex,
+              createdAt: data.createdAt,
+              shippingAddress: data.shippingAddress,
             });
           }
         });
 
         // Sort newest first
-        fetched.sort((a, b) => b.id.localeCompare(a.id));
+        fetched.sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        });
         setOrders(fetched);
         setLoading(false);
       },
@@ -182,15 +190,26 @@ export default function OrdersScreen() {
   const deliveredCount = orders.filter((o) => o.status === 'Delivered').length;
 
   // Delete Order Handler
-  const handleDeleteOrder = async (orderId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    try {
-      await deleteDoc(doc(db, 'orders', orderId));
-      setOrders((prev) => prev.filter((o) => o.id !== orderId));
-    } catch (e) {
-      console.error('Error deleting order:', e);
-      handleError(new AppError(ErrorCode.ORDER_ERROR, 'Failed to delete order.'));
-    }
+  const handleDeleteOrder = (orderId: string) => {
+    Alert.alert(
+      'Delete Order',
+      'Are you sure you want to remove this order from your history? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, 'orders', orderId));
+              setOrders(prev => prev.filter(o => o.id !== orderId));
+            } catch (e) {
+              console.error('Error deleting order:', e);
+            }
+          }
+        }
+      ]
+    );
   };
 
   // Cancel Order Handler
@@ -314,7 +333,7 @@ export default function OrdersScreen() {
 
     const matchesSearch =
       ord.orderId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (ord.products && ord.products.some((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase())));
+      (ord.products && ord.products.some((p) => (p.title || '').toLowerCase().includes(searchQuery.toLowerCase())));
 
     return matchesTab && matchesSearch;
   });
@@ -769,7 +788,7 @@ export default function OrdersScreen() {
                 <View style={S.infoRowItem}>
                   <Text style={S.infoRowLabel}>Delivery Address:</Text>
                   <Text style={[S.infoRowVal, isDark && S.textLight, { flex: 1, textAlign: 'right' }]} numberOfLines={2}>
-                    Hostel 3, Room 402, IIT Patna, Bihta, Bihar - 801103
+                    {selectedOrderForModal?.shippingAddress || 'No address on file'}
                   </Text>
                 </View>
               </View>

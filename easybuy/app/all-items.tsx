@@ -9,6 +9,7 @@ import {
   Dimensions,
   Animated,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -102,20 +103,51 @@ export default function AllItemsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('All');
   const [selectedQuote, setSelectedQuote] = useState('');
+  const [sortMode, setSortMode] = useState('featured');
 
-  // Catalog-wide product search matching the search query
+  // Catalog-wide product search matching the search query and tab filters
   const matchedProducts = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    const q = searchQuery.toLowerCase().trim();
-    const catalog = generateFullIndianCatalog();
-    return catalog.filter((p) => {
-      const nameMatch = (p.name || p.title || '').toLowerCase().includes(q);
-      const brandMatch = (p.brand || '').toLowerCase().includes(q);
-      const catMatch = (p.categoryName || '').toLowerCase().includes(q);
-      const keywordMatch = (p.searchKeywords || []).some(k => k.toLowerCase().includes(q));
-      return nameMatch || brandMatch || catMatch || keywordMatch;
-    });
-  }, [searchQuery]);
+    if (!searchQuery.trim() && selectedTab === 'All' && sortMode === 'featured') return [];
+    
+    let catalog = generateFullIndianCatalog();
+    
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      catalog = catalog.filter((p) => {
+        const nameMatch = (p.name || p.title || '').toLowerCase().includes(q);
+        const brandMatch = (p.brand || '').toLowerCase().includes(q);
+        const catMatch = (p.categoryName || '').toLowerCase().includes(q);
+        const keywordMatch = (p.searchKeywords || []).some(k => k.toLowerCase().includes(q));
+        return nameMatch || brandMatch || catMatch || keywordMatch;
+      });
+    }
+
+    if (selectedTab === 'QuickBuy') {
+      catalog = catalog.filter(item => (item as any).isQuickBuy === true || (item as any).isQuickDelivery === true);
+    } else if (selectedTab === 'Trending') {
+      catalog = catalog.filter(item => item.isTrending === true || (item.rating && item.rating >= 4.5));
+    } else if (selectedTab === 'New Arrivals') {
+      catalog = catalog.filter(item => item.isNewArrival === true);
+    } else if (selectedTab === 'Offers') {
+      catalog = catalog.filter(item => {
+        const mrp = item.originalPriceNumber || item.mrp || 0;
+        const price = item.priceNumber || item.price || 0;
+        return mrp > price;
+      });
+    } else if (selectedTab === 'Top Rated') {
+      catalog = [...catalog].sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    }
+
+    if (sortMode === 'price_asc') {
+      catalog = [...catalog].sort((a, b) => (a.priceNumber || a.price || 0) - (b.priceNumber || b.price || 0));
+    } else if (sortMode === 'price_desc') {
+      catalog = [...catalog].sort((a, b) => (b.priceNumber || b.price || 0) - (a.priceNumber || a.price || 0));
+    } else if (sortMode === 'rating') {
+      catalog = [...catalog].sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    }
+
+    return catalog;
+  }, [searchQuery, selectedTab, sortMode]);
 
   const renderProductItem = (item: any, idx: number) => {
     return (
@@ -669,13 +701,29 @@ export default function AllItemsScreen() {
 
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, isDark && styles.textLight]}>Explore by Category</Text>
-              <TouchableOpacity style={styles.sortBtn} activeOpacity={0.7}>
-                <Text style={styles.sortText}>Featured</Text>
+              <TouchableOpacity 
+                style={styles.sortBtn} 
+                activeOpacity={0.7}
+                onPress={() => {
+                  Alert.alert('Sort By', 'Choose sort order', [
+                    { text: 'Featured', onPress: () => setSortMode('featured') },
+                    { text: 'Price: Low to High', onPress: () => setSortMode('price_asc') },
+                    { text: 'Price: High to Low', onPress: () => setSortMode('price_desc') },
+                    { text: 'Top Rated', onPress: () => setSortMode('rating') },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]);
+                }}
+              >
+                <Text style={styles.sortText}>
+                  {sortMode === 'featured' ? 'Featured' : 
+                   sortMode === 'price_asc' ? 'Price: Low to High' :
+                   sortMode === 'price_desc' ? 'Price: High to Low' : 'Top Rated'}
+                </Text>
                 <Ionicons name="chevron-down" size={14} color="#7C3AED" />
               </TouchableOpacity>
             </View>
 
-            {searchQuery.length > 0 ? (
+            {searchQuery.length > 0 || selectedTab !== 'All' || sortMode !== 'featured' ? (
               filteredCategories.length === 0 && matchedProducts.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <Ionicons name="search-outline" size={44} color="#94A3B8" />
@@ -849,7 +897,7 @@ export default function AllItemsScreen() {
                 activeOpacity={0.85}
                 onPress={() => {
                   Haptics.selectionAsync().catch(() => {});
-                  router.push('/support' as any);
+                  router.back();
                 }}
               >
                 <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFFFFF" />

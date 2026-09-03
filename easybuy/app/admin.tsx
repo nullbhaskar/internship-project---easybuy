@@ -282,7 +282,7 @@ export default function AdminScreen() {
       const now = new Date().toISOString();
       if (product.id) {
         const updated = { ...product, updatedAt: now };
-        await updateDoc(doc(db, 'products', product.id), updated);
+        await setDoc(doc(db, 'products', product.id), updated, { merge: true });
         setProducts(prev => prev.map(p => p.id === product.id ? { ...p, ...updated } : p));
         registerProduct(updated);
         showToast('Product updated successfully!');
@@ -715,24 +715,24 @@ export default function AdminScreen() {
                   setConfirmDelete(true);
                 }}
               />
-              
-              {showProductForm && (
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, backgroundColor: '#FFFFFF' }}>
-                  <ProductForm
-                    categories={categories}
-                    product={selectedProduct}
-                    loading={panelLoading}
-                    onSave={handleSaveProduct}
-                    onCancel={() => { setShowProductForm(false); setSelectedProduct(null); }}
-                  />
-                </View>
-              )}
             </View>
           )}
 
           {/* ══════════════ 5. ORDERS ══════════════ */}
           {activeSection === 'orders' && (
             <AdminOrders orders={orders} onUpdateStatus={handleUpdateOrderStatus} />
+          )}
+          
+          {showProductForm && (
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, backgroundColor: '#FFFFFF' }}>
+              <ProductForm
+                categories={categories}
+                product={selectedProduct}
+                loading={panelLoading}
+                onSave={handleSaveProduct}
+                onCancel={() => { setShowProductForm(false); setSelectedProduct(null); }}
+              />
+            </View>
           )}
         </View>
       </KeyboardAvoidingView>

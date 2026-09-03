@@ -250,13 +250,28 @@ export default function ForgotPasswordScreen() {
         }
       }
 
-      if (targetDocId) {
-        // Update password field of existing user document in Firestore
-        const userRef = doc(db, 'users', targetDocId);
-        await updateDoc(userRef, {
-          password: newPassword,
-          updatedAt: new Date().toISOString(),
-        });
+      if (!targetDocId) {
+        setCustomError('No account found with this email address.');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Update password field of existing user document in Firestore
+      const userRef = doc(db, 'users', targetDocId);
+      await updateDoc(userRef, {
+        password: newPassword,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Try to reauthenticate if user is signed in to update Auth password
+      const { auth } = require('../services/firebase');
+      const { updatePassword } = require('firebase/auth');
+      if (auth.currentUser) {
+        try {
+          await updatePassword(auth.currentUser, newPassword);
+        } catch (authErr) {
+          console.log('Firebase Auth update error:', authErr);
+        }
       }
 
       setIsSubmitting(false);
@@ -331,7 +346,7 @@ export default function ForgotPasswordScreen() {
               </Text>
               <Text style={styles.subtitle}>
                 {step === 1 && 'Enter your registered email address to locate your account.'}
-                {step === 2 && 'Enter the 4-digit verification OTP code below.'}
+                {step === 2 && 'Enter the 6-digit verification OTP code below.'}
                 {step === 3 && 'Create and confirm your new account password.'}
                 {step === 4 && 'Your password has been successfully updated in Firestore.'}
               </Text>

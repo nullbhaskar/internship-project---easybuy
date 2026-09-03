@@ -143,7 +143,7 @@ export default function CartScreen() {
             </FloatLoop>
             <Text style={S.emptyTitle}>Your cart is empty</Text>
             <Text style={S.emptySub}>Discover our curated collections and fill your cart.</Text>
-            <TouchableOpacity style={S.exploreBtn} onPress={() => router.back()} activeOpacity={0.85}>
+            <TouchableOpacity style={S.exploreBtn} onPress={() => router.push('/home')} activeOpacity={0.85}>
               <Text style={S.exploreBtnTxt}>START SHOPPING</Text>
             </TouchableOpacity>
           </View>

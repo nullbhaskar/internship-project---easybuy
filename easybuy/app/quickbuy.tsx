@@ -10,6 +10,7 @@ import {
   Animated,
   PanResponder,
   Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -67,7 +68,7 @@ export default function QuickBuyScreen() {
     async function fetchQuickBuyItems() {
       setIsLoading(true);
       try {
-        const stateIdToUse = selectedAddress?.stateId || 'bihar';
+        const stateIdToUse = (selectedAddress as any)?.stateId || selectedAddress?.state || 'bihar';
         const q = query(
           collection(db, 'products'),
           where('stateId', '==', stateIdToUse),
@@ -128,7 +129,7 @@ export default function QuickBuyScreen() {
       }
     }
     fetchQuickBuyItems();
-  }, [selectedAddress?.stateId]);
+  }, [(selectedAddress as any)?.stateId, selectedAddress?.state]);
 
   // ── Tab Switch Animation ──────────────────────────────────────────────────
   const contentFadeAnim = useRef(new Animated.Value(1)).current;
@@ -217,12 +218,17 @@ export default function QuickBuyScreen() {
 
   const activeCategory = quickBuyCategories.find(c => c.id === activeTabId) || quickBuyCategories[0];
 
-  const handleAddPress = (product: QBProduct) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    router.push({
-      pathname: '/product/[id]',
-      params: { id: product.id }
-    } as any);
+  const handleAddPress = (product: any) => {
+    addToCart({
+      id: product.id,
+      title: product.title || product.name,
+      price: product.price,
+      originalPrice: product.mrp || product.price,
+      image: product.thumbnail || product.image || product.images?.[0] || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+      quantity: 1,
+    });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    Alert.alert('Added!', `${product.title || product.name} added to cart.`, [{ text: 'OK' }]);
   };
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
@@ -579,7 +585,7 @@ export default function QuickBuyScreen() {
                 style={styles.menuRowItem}
                 onPress={() => {
                   setDrawerVisible(false);
-                  router.push('/profile' as any);
+                  router.push('/orders' as any);
                 }}
                 activeOpacity={0.85}
               >
@@ -678,7 +684,6 @@ export default function QuickBuyScreen() {
           setQuickAddVisible(false);
         }}
       />
-      <LocationPickerModal />
     </>
   );
 }

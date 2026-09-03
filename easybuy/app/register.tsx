@@ -198,6 +198,12 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!agreeTerms) {
+      setCustomError('Please agree to the Terms & Conditions');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      return;
+    }
+
     setIsSubmitting(true);
     setCustomError('');
     try {
@@ -230,6 +236,7 @@ export default function RegisterScreen() {
           email: cleanEmail, 
           name: name.trim(), 
           password,
+          phone: phone.trim(),
           expectedOtp: generatedOtp 
         },
       } as any);
@@ -466,7 +473,7 @@ export default function RegisterScreen() {
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               placeholder="Re-enter your password"
-              secureTextEntry
+              isPassword
               error={confirmPasswordError}
               accessibilityLabel="Confirm password input"
               containerStyle={{ marginBottom: 10, marginTop: 4 }}

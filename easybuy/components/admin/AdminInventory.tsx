@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, Animated, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, Animated, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AdminProduct } from './adminTypes';
 
@@ -26,7 +26,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({ products, onEdit
   const [scanFilter, setScanFilter] = useState<'all' | 'critical' | 'warnings' | 'anomalies'>('all');
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (isScanning) {
       interval = setInterval(() => {
         setScanProgress(p => {
@@ -166,7 +166,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({ products, onEdit
       {/* Action Required */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Action Required</Text>
-        <TouchableOpacity><Text style={styles.viewAll}>View All {'>'}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => Alert.alert('View All', 'Navigate to Products tab to see all items.')}><Text style={styles.viewAll}>View All {'>'}</Text></TouchableOpacity>
       </View>
 
       {totalProducts === 0 ? (
@@ -180,7 +180,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({ products, onEdit
             <Text style={styles.itemName}>Wireless Noise-Canceling Headphones XL</Text>
             <View style={styles.actionBottom}>
               <View style={styles.badgeGray}><Text style={styles.badgeText}>Demand: High</Text></View>
-              <TouchableOpacity style={styles.btnBlue}>
+              <TouchableOpacity style={styles.btnBlue} onPress={() => Alert.alert('Restock', `Auto-restocking Wireless Noise-Canceling Headphones XL. Supplier notified.`)}>
                 <Ionicons name="refresh" size={12} color="#FFF" style={{marginRight: 4}} />
                 <Text style={styles.btnBlueText}>Restock</Text>
               </TouchableOpacity>
@@ -196,7 +196,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({ products, onEdit
             <Text style={styles.itemName}>Ceramic Minimalist Coffee Mug Set</Text>
             <View style={styles.actionBottom}>
               <View style={styles.badgeGray}><Text style={styles.badgeText}>Est. runout: 4 days</Text></View>
-              <TouchableOpacity style={styles.btnGray}>
+              <TouchableOpacity style={styles.btnGray} onPress={() => Alert.alert('Place Order', `Order placed for Ceramic Minimalist Coffee Mug Set. Supplier will confirm within 24 hours.`)}>
                 <Ionicons name="cart" size={12} color="#475569" style={{marginRight: 4}} />
                 <Text style={styles.btnGrayText}>Order</Text>
               </TouchableOpacity>
@@ -222,7 +222,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({ products, onEdit
               <Text style={styles.itemName}>{p.title || p.name}</Text>
               <View style={styles.actionBottom}>
                 <View style={styles.badgeGray}><Text style={styles.badgeText}>Stock: 0</Text></View>
-                <TouchableOpacity style={styles.btnBlue}>
+                <TouchableOpacity style={styles.btnBlue} onPress={() => Alert.alert('Restock', `Auto-restocking ${p.title || p.name}. Supplier notified.`)}>
                   <Ionicons name="refresh" size={12} color="#FFF" style={{marginRight: 4}} />
                   <Text style={styles.btnBlueText}>Restock</Text>
                 </TouchableOpacity>
@@ -239,7 +239,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({ products, onEdit
               <Text style={styles.itemName}>{p.title || p.name}</Text>
               <View style={styles.actionBottom}>
                 <View style={styles.badgeGray}><Text style={styles.badgeText}>Running out</Text></View>
-                <TouchableOpacity style={styles.btnGray}>
+                <TouchableOpacity style={styles.btnGray} onPress={() => Alert.alert('Place Order', `Order placed for ${p.title || p.name}. Supplier will confirm within 24 hours.`)}>
                   <Ionicons name="cart" size={12} color="#475569" style={{marginRight: 4}} />
                   <Text style={styles.btnGrayText}>Order</Text>
                 </TouchableOpacity>

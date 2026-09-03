@@ -29,7 +29,7 @@ import { useAuth } from '../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { executePostLoginFlow } from '../services/locationPermissionService';
 
@@ -247,39 +247,23 @@ export default function LoginScreen() {
             console.log('[Dev] Auth sign-in failed, continuing with static access:', authErr);
           }
         } else {
-          // 1. Check email address and password against Firestore users collection
-          const usersRef = collection(db, 'users');
-          const q = query(usersRef, where('email', '==', cleanEmail), where('password', '==', password));
-          const querySnapshot = (await withTimeout(getDocs(q), 5000, 'Network timeout while checking credentials.')) as any;
-          
-          if (!querySnapshot.empty) {
+          // 1. Authenticate via Firebase Auth FIRST
+          const fbCred = (await withTimeout(signInWithEmailAndPassword(auth, cleanEmail, password), 5000, 'Network timeout')) as any;
+          if (fbCred.user) {
             isAuthenticated = true;
-            const docData = querySnapshot.docs[0].data();
+            
+            const userDocRef = doc(db, 'users', fbCred.user.uid);
+            const userDocSnap = await getDoc(userDocRef);
+            const userData = userDocSnap.exists() ? userDocSnap.data() : {};
+            
             profileData = {
-              uid: querySnapshot.docs[0].id || docData.uid || 'user_' + cleanEmail.replace(/[^a-z0-9]/g, ''),
+              uid: fbCred.user.uid,
               email: cleanEmail,
-              fullName: docData.fullName || 'EasyBuy Customer',
-              phone: docData.phone,
-              gender: docData.gender,
-              dob: docData.dob,
+              fullName: fbCred.user.displayName || userData.fullName || userData.name || 'EasyBuy Customer',
+              phone: userData.phone,
+              gender: userData.gender,
+              dob: userData.dob,
             };
-          }
-
-          // 2. Also authenticate via Firebase Auth if needed
-          try {
-            const fbCred = (await withTimeout(signInWithEmailAndPassword(auth, cleanEmail, password), 5000, 'Network timeout')) as any;
-            if (fbCred.user) {
-              isAuthenticated = true;
-              if (!profileData) {
-                profileData = {
-                  uid: fbCred.user.uid,
-                  email: cleanEmail,
-                  fullName: fbCred.user.displayName || 'EasyBuy Customer',
-                };
-              }
-            }
-          } catch (authErr) {
-            // Handled
           }
         }
 

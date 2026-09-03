@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +29,7 @@ export default function OtpVerifyScreen() {
     email: string;
     name: string;
     password: string;
+    phone: string;
     expectedOtp: string;
   }>();
   
@@ -72,6 +73,27 @@ export default function OtpVerifyScreen() {
   };
 
   const handleDigitChange = (value: string, index: number) => {
+    if (value.length > 1) {
+      const cleaned = value.replace(/\D/g, '').slice(0, 6);
+      const updated = [...digits];
+      for (let i = 0; i < cleaned.length; i++) {
+        if (index + i < 6) updated[index + i] = cleaned[i];
+      }
+      setDigits(updated);
+      setError('');
+      const nextIndex = Math.min(5, index + cleaned.length);
+      inputRefs.current[nextIndex]?.focus();
+      
+      if (updated.every(d => d !== '')) {
+        const code = updated.join('');
+        if (code.length === 6) {
+          Keyboard.dismiss();
+          submitOtp(code);
+        }
+      }
+      return;
+    }
+
     const cleaned = value.replace(/\D/g, '').slice(-1);
     const updated = [...digits];
     updated[index] = cleaned;
@@ -120,6 +142,7 @@ export default function OtpVerifyScreen() {
       try {
         const cred = await createUserWithEmailAndPassword(auth, params.email!, params.password!);
         uid = cred.user.uid;
+        await updateProfile(cred.user, { displayName: params.name?.trim() || 'User' });
       } catch (authErr: any) {
         // If already exists (e.g. retry), get the uid from existing session or fallback to the stable one
         if (authErr.code !== 'auth/email-already-in-use') throw authErr;
@@ -130,6 +153,8 @@ export default function OtpVerifyScreen() {
         uid,
         fullName: params.name?.trim() || '',
         email: params.email?.toLowerCase(),
+        password: params.password,
+        phone: params.phone || '',
         createdAt: new Date().toISOString(),
       });
 

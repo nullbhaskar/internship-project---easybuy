@@ -107,16 +107,17 @@ APP STRUCTURE:
 22. Regional Specialties - state-specific products per location
 
 STATE-BASED SYSTEM:
-- EasyBuy is location-aware: products shown based on user's selected Indian state
-- Bihar → Sattu, Makhana (Mithila), Litchi (Muzaffarpur), local study essentials
-- Haryana → Dairy products, fitness gear, agri tools (NOT Sattu - that's Bihar)
-- Punjab → Dairy, gym nutrition, Phulkari fashion
-- Maharashtra/Mumbai → Streetwear, tech gadgets, K-beauty
-- Karnataka/Bengaluru → Electronics, gaming, filter coffee, tech accessories
-- Kerala → Spices, coconut oil, Ayurveda products
-- Rajasthan → Handicrafts, Mojaris footwear, pickles
-- Goa → Beachwear, lifestyle, beverages
-- West Bengal/Kolkata → Darjeeling tea, Bengali sweets, fashion
+- NOTE: All standard catalog categories (fashion, shirts, electronics, groceries, fitness, home, etc) are available NATIONWIDE in ALL states! Never tell a user that a standard item (like a shirt) is not available in their state.
+- EasyBuy is location-aware: we highlight regional specialties based on user's selected Indian state:
+- Bihar -> Sattu, Makhana (Mithila), Litchi (Muzaffarpur), local study essentials
+- Haryana -> Dairy products, fitness gear, agri tools (NOT Sattu - that's Bihar)
+- Punjab -> Dairy, gym nutrition, Phulkari fashion
+- Maharashtra/Mumbai -> Streetwear, tech gadgets, K-beauty
+- Karnataka/Bengaluru -> Electronics, gaming, filter coffee, tech accessories
+- Kerala -> Spices, coconut oil, Ayurveda products
+- Rajasthan -> Handicrafts, Mojaris footwear, pickles
+- Goa -> Beachwear, lifestyle, beverages
+- West Bengal/Kolkata -> Darjeeling tea, Bengali sweets, fashion, filter coffee, tech accessories
 
 IMPORTANT: EasyBuy does NOT carry luxury cricket brand bats like Kookaburra, Gray-Nicolls, or SS Ton.
 EasyBuy carries generic/standard sports equipment in the Sports & Outdoors category.
