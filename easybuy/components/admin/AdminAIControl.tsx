@@ -48,7 +48,7 @@ export const AdminAIControl: React.FC<AdminAIControlProps> = ({ products, orders
   const prevRevenue = prevOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
   const marginLift = prevRevenue > 0
     ? (((recentRevenue - prevRevenue) / prevRevenue) * 100).toFixed(1)
-    : orders.length > 0 ? '+2.3' : '+4.2';
+    : orders.length > 0 ? '2.3' : '4.2';
   const marginPositive = !String(marginLift).startsWith('-');
 
   const totalMonitored = products.length > 0 ? products.length : 2481;
