@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/assets/images/easybuy_logo.png" alt="EasyBuy Logo" width="160" />
 
-  # EasyBuy: Next-Gen AI E-Commerce
+  # EasyBuy: Next-Gen AI E-Commerce (in progress)
 
   **An enterprise-grade, highly personalized mobile shopping platform engineered with Artificial Intelligence.**
 
@@ -52,11 +52,11 @@ From dynamic AI-powered pricing engines to dual intelligent shopping assistants,
     <tr>
       <td align="center" width="33%">
         <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img1.png" width="220" style="border-radius: 15px;" />
-        <br /><br /><b>Splash & Onboarding</b>
+        <br /><br /><b>Splash Screen</b>
       </td>
       <td align="center" width="33%">
         <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img2.png" width="220" style="border-radius: 15px;" />
-        <br /><br /><b>Intelligent Home Feed</b>
+        <br /><br /><b>Homepage</b>
       </td>
       <td align="center" width="33%">
         <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img3.png" width="220" style="border-radius: 15px;" />
@@ -172,6 +172,7 @@ Follow these instructions to clone and run the project locally.
 ---
 
 <div align="center">
-  <h3>Architected & Engineered by <b>Bhaskar Das</b></h3>
-  <p><i>University Internship Project Evaluation</i></p>
+  <h3>Devloped by <b>Bhaskar Das</b></h3>
+  <p><i>Internship Project</i></p>
+  <P>in progress</P>
 </div>
