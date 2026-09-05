@@ -21,6 +21,7 @@ import { useEasyBuyTheme } from '../constants/ThemeContext';
 import { db } from '../services/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { generateFullIndianCatalog } from '../constants/catalogGenerator';
+import { AIAssistantChatModal } from '../components/ai/AIAssistantChatModal';
 import { PressableScale, StaggerIn } from '../components/ui/motion';
 
 const { width } = Dimensions.get('window');
@@ -98,6 +99,7 @@ export default function AllItemsScreen() {
   const { openCart, totalItems: cartCount, addToCart } = useCart();
 
   const [categories, setCategories] = useState<any[]>([]);
+  const [isAIChatVisible, setIsAIChatVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -897,7 +899,7 @@ export default function AllItemsScreen() {
                 activeOpacity={0.85}
                 onPress={() => {
                   Haptics.selectionAsync().catch(() => {});
-                  router.back();
+                  setIsAIChatVisible(true);
                 }}
               >
                 <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFFFFF" />
@@ -908,6 +910,7 @@ export default function AllItemsScreen() {
         )}
 
       </Animated.ScrollView>
+      <AIAssistantChatModal visible={isAIChatVisible} onClose={() => setIsAIChatVisible(false)} />
     </SafeAreaView>
   );
 }

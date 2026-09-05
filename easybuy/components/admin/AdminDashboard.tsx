@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Image, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { AdminOrder, AdminProduct } from './adminTypes';
 
 interface AdminDashboardProps {
@@ -30,6 +32,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, orders
   const displayLowStockCount = products.length > 0 ? lowStockCount : 1;
 
   const [chartMode, setChartMode] = useState<'7 Days' | '30 Days' | '12 Months'>('7 Days');
+  const [selectedChartIndex, setSelectedChartIndex] = useState<number | null>(null);
+  const [chartWidth, setChartWidth] = useState<number>(300);
 
   // Chart Data Calculation
   let chartData: number[] = [];
@@ -207,40 +211,120 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ products, orders
         </TouchableOpacity>
       </View>
 
-      {/* Chart Placeholder */}
-      <View style={styles.chartCard}>
-        <View style={styles.chartHeader}>
-          <Text style={styles.chartTitle}>Revenue ({chartMode})</Text>
-          <TouchableOpacity onPress={cycleChartMode} hitSlop={{top:10, bottom:10, left:10, right:10}}>
-            <Ionicons name="ellipsis-horizontal" size={18} color="#94A3B8" />
-          </TouchableOpacity>
+      {/* Smooth Curved SVG Graph */}
+      <View style={[styles.chartCard, { padding: 0 }]} onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}>
+        <View style={{ padding: 20, paddingBottom: 0 }}>
+          <View style={styles.chartHeader}>
+            <View>
+              <Text style={styles.chartTitle}>Revenue ({chartMode})</Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: '#0F172A', marginTop: 4 }}>
+                {formatCurrency(totalRevenue)}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={cycleChartMode} hitSlop={{top:10, bottom:10, left:10, right:10}} style={{ backgroundColor: '#F1F5F9', padding: 8, borderRadius: 20 }}>
+              <Ionicons name="filter" size={16} color="#64748B" />
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={{ flexDirection: 'row', height: 140, alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 20, paddingHorizontal: 10 }}>
-          {chartData.map((value, index) => {
-            const heightPct = (value / maxChartValue) * 100;
-            const is30Days = chartMode === '30 Days';
-            
-            return (
-              <View key={index} style={{ height: '100%', alignItems: 'center', flex: 1, marginHorizontal: is30Days ? 1 : 4 }}>
-                <View style={{ flex: 1, width: '100%', justifyContent: 'flex-end' }}>
-                  <View style={{ 
-                    width: '100%', 
-                    height: `${heightPct}%`, 
-                    minHeight: 4,
-                    backgroundColor: '#3B82F6', 
-                    borderTopLeftRadius: 4, 
-                    borderTopRightRadius: 4,
-                    opacity: value > 0 ? 0.85 : 0.2
-                  }} />
-                </View>
-                {(!is30Days || index % 5 === 0) && (
-                  <Text style={{ height: 14, marginTop: 4, fontSize: is30Days ? 8 : 10, color: '#94A3B8', fontWeight: '500' }}>
-                    {labels[index]}
-                  </Text>
-                )}
-              </View>
-            );
-          })}
+
+        <View style={{ height: 180, marginTop: 10 }}>
+          {/* Background Grid Lines */}
+          <View style={{ position: 'absolute', top: 10, bottom: 30, left: 20, right: 20, justifyContent: 'space-between' }}>
+            {[1, 2, 3, 4].map((_, i) => (
+              <View key={i} style={{ height: 1, backgroundColor: '#F1F5F9', width: '100%' }} />
+            ))}
+          </View>
+
+          {/* Flow Line Graph */}
+          <View style={{ flex: 1, position: 'relative' }}>
+            {(() => {
+              if (chartData.length === 0 || chartWidth <= 0) return null;
+              
+              const chartH = 130;
+              const points = chartData.map((val, i) => {
+                const heightPct = maxChartValue > 0 ? (val / maxChartValue) : 0;
+                return {
+                  x: 20 + i * ((chartWidth - 40) / Math.max(1, chartData.length - 1)),
+                  y: 10 + chartH - (heightPct * chartH),
+                  val,
+                  index: i
+                };
+              });
+
+              let pathD = `M ${points[0].x},${points[0].y}`;
+              for (let i = 1; i < points.length; i++) {
+                const prev = points[i - 1];
+                const curr = points[i];
+                const cp1x = prev.x + (curr.x - prev.x) / 2;
+                const cp1y = prev.y;
+                const cp2x = prev.x + (curr.x - prev.x) / 2;
+                const cp2y = curr.y;
+                pathD += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${curr.x},${curr.y}`;
+              }
+              const areaPathD = `${pathD} L ${points[points.length - 1].x},${10 + chartH} L ${points[0].x},${10 + chartH} Z`;
+
+              const is30Days = chartMode === '30 Days';
+
+              return (
+                <>
+                  <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 }}>
+                    <Svg width="100%" height="100%">
+                      <Defs>
+                        <SvgLinearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
+                          <Stop offset="0" stopColor="#3B82F6" stopOpacity="0.3" />
+                          <Stop offset="1" stopColor="#3B82F6" stopOpacity="0.0" />
+                        </SvgLinearGradient>
+                      </Defs>
+                      <Path d={areaPathD} fill="url(#gradient)" />
+                      <Path d={pathD} fill="none" stroke="#3B82F6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                  </View>
+
+                  {/* Data Dots & Touch Areas */}
+                  {points.map((p) => {
+                    const isSelected = selectedChartIndex === p.index;
+                    return (
+                      <View key={`dot-${p.index}`} style={{ position: 'absolute', left: p.x - 15, top: p.y - 15, width: 30, height: 180 - p.y, zIndex: 2, alignItems: 'center' }}>
+                        {/* The Dot */}
+                        <TouchableOpacity 
+                          activeOpacity={0.8}
+                          onPress={() => setSelectedChartIndex(p.index === selectedChartIndex ? null : p.index)}
+                          style={{
+                            width: isSelected ? 12 : 8,
+                            height: isSelected ? 12 : 8,
+                            borderRadius: 6,
+                            backgroundColor: isSelected ? '#2563EB' : '#FFFFFF',
+                            borderWidth: 2,
+                            borderColor: '#3B82F6',
+                            shadowColor: '#2563EB',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 4,
+                            elevation: 4,
+                            marginTop: 15 - (isSelected ? 6 : 4)
+                          }}
+                        />
+                        
+                        {/* Label */}
+                        {(!is30Days || p.index % 5 === 0) && (
+                          <Text style={{ position: 'absolute', bottom: 10, fontSize: is30Days ? 8 : 10, color: isSelected ? '#0F172A' : '#94A3B8', fontWeight: isSelected ? '700' : '500' }}>
+                            {labels[p.index]}
+                          </Text>
+                        )}
+
+                        {/* Tooltip */}
+                        {isSelected && (
+                          <View style={{ position: 'absolute', top: -30, backgroundColor: '#0F172A', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, zIndex: 10 }}>
+                            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{formatCurrency(p.val)}</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </>
+              );
+            })()}
+          </View>
         </View>
       </View>
 

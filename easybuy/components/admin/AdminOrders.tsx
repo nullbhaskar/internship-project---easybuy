@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, FlatList, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AdminOrder } from './adminTypes';
 
@@ -11,12 +11,9 @@ interface AdminOrdersProps {
 export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
 
-  const baseOrders = orders.length > 0 ? orders : [
-    { id: '1', orderId: '#ORD-9021', userName: 'Alex Johnson', totalAmount: 129.00, status: 'Pending', createdAt: new Date().toISOString() },
-    { id: '2', orderId: '#ORD-9022', userName: 'Sarah Smith', totalAmount: 249.00, status: 'Shipped', createdAt: new Date(Date.now() - 86400000).toISOString() },
-    { id: '3', orderId: '#ORD-9023', userName: 'Mike Brown', totalAmount: 89.99, status: 'Delivered', createdAt: new Date(Date.now() - 172800000).toISOString() },
-  ];
+  const baseOrders = orders.length > 0 ? orders : [];
 
   const displayOrders = baseOrders.filter(o => {
     const matchesFilter = filter === 'All' || (o.status && o.status.toLowerCase() === filter.toLowerCase());
@@ -24,7 +21,9 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
     const matchesSearch = !search || 
       (o.orderId && o.orderId.toLowerCase().includes(searchLower)) ||
       (o.userName && o.userName.toLowerCase().includes(searchLower)) ||
-      (o.userEmail && o.userEmail.toLowerCase().includes(searchLower));
+      (o.userEmail && o.userEmail.toLowerCase().includes(searchLower)) ||
+      (o.shippingAddress?.fullName && o.shippingAddress.fullName.toLowerCase().includes(searchLower)) ||
+      (o.address?.fullName && o.address.fullName.toLowerCase().includes(searchLower));
     
     return matchesFilter && matchesSearch;
   });
@@ -32,11 +31,20 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
   const getStatusColor = (status: string = '') => {
     switch(status.toLowerCase()) {
       case 'pending': return { bg: '#FFF7ED', text: '#EA580C', dot: '#F59E0B' };
+      case 'processing': return { bg: '#F3E8FF', text: '#7E22CE', dot: '#9333EA' };
       case 'shipped': return { bg: '#EFF6FF', text: '#3B82F6', dot: '#3B82F6' };
       case 'delivered': return { bg: '#F0FDF4', text: '#16A34A', dot: '#10B981' };
       case 'cancelled': return { bg: '#FEF2F2', text: '#EF4444', dot: '#EF4444' };
       default: return { bg: '#F1F5F9', text: '#64748B', dot: '#94A3B8' };
     }
+  };
+
+  const getUserName = (o: any) => {
+    if (o.shippingAddress?.fullName) return o.shippingAddress.fullName;
+    if (o.address?.fullName) return o.address.fullName;
+    if (o.userName && o.userName !== 'User') return o.userName;
+    if (o.userEmail) return o.userEmail.split('@')[0];
+    return 'Guest User';
   };
 
   const renderHeader = () => (
@@ -68,7 +76,7 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={{ gap: 8, paddingBottom: 16 }}>
-        {['All', 'Pending', 'Shipped', 'Delivered', 'Cancelled'].map(f => (
+        {['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'].map(f => (
           <TouchableOpacity 
             key={f} 
             style={[styles.filterPill, filter === f && styles.filterPillActive]}
@@ -83,9 +91,7 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
 
   const formatOrderDate = (createdAt: any) => {
     if (!createdAt) return 'Unknown date';
-    // Firestore Timestamp object
     if (createdAt?.seconds) return new Date(createdAt.seconds * 1000).toLocaleDateString('en-IN');
-    // ISO string
     if (typeof createdAt === 'string') return new Date(createdAt).toLocaleDateString('en-IN');
     return 'Unknown date';
   };
@@ -93,14 +99,17 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
   const renderOrder = ({ item: o }: { item: any }) => {
     const colors = getStatusColor(o.status);
     const date = formatOrderDate(o.createdAt);
-    const statusLower = (o.status || '').toLowerCase();
     
     return (
-      <View style={styles.orderCard}>
+      <TouchableOpacity 
+        style={styles.orderCard} 
+        activeOpacity={0.7}
+        onPress={() => setSelectedOrder(o)}
+      >
         <View style={styles.orderTop}>
           <View>
             <Text style={styles.orderId}>{o.orderId || o.id}</Text>
-            <Text style={styles.orderName}>{o.userName || o.userEmail || 'Guest User'}</Text>
+            <Text style={styles.orderName}>{getUserName(o)}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: colors.bg }]}>
             <View style={[styles.statusDot, { backgroundColor: colors.dot }]} />
@@ -117,25 +126,113 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
           </View>
           <Text style={styles.orderTotal}>₹{(parseFloat(String(o.totalAmount).replace(/[^0-9.]/g, '')) || 0).toFixed(2)}</Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-          {statusLower !== 'shipped' && statusLower !== 'delivered' && statusLower !== 'cancelled' && (
-            <TouchableOpacity 
-              style={{ backgroundColor: '#EFF6FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#BFDBFE' }}
-              onPress={() => onUpdateStatus && onUpdateStatus(o.id, 'Shipped')}
-            >
-              <Text style={{ fontSize: 12, fontWeight: '600', color: '#1D4ED8' }}>Mark Shipped</Text>
-            </TouchableOpacity>
-          )}
-          {statusLower === 'shipped' && (
-            <TouchableOpacity 
-              style={{ backgroundColor: '#F0FDF4', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#BBF7D0' }}
-              onPress={() => onUpdateStatus && onUpdateStatus(o.id, 'Delivered')}
-            >
-              <Text style={{ fontSize: 12, fontWeight: '600', color: '#15803D' }}>Mark Delivered</Text>
-            </TouchableOpacity>
-          )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderOrderDetailsModal = () => {
+    if (!selectedOrder) return null;
+    const colors = getStatusColor(selectedOrder.status);
+    const date = formatOrderDate(selectedOrder.createdAt);
+    const items = selectedOrder.items || selectedOrder.products || [];
+    
+    return (
+      <Modal
+        visible={!!selectedOrder}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedOrder(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Order Details</Text>
+              <TouchableOpacity onPress={() => setSelectedOrder(null)} style={styles.closeBtn}>
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ padding: 20 }}>
+              {/* Top Info */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 }}>
+                <View>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#0F172A', marginBottom: 4 }}>
+                    {selectedOrder.orderId || selectedOrder.id}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: '#64748B' }}>{date}</Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: colors.bg, height: 28 }]}>
+                  <View style={[styles.statusDot, { backgroundColor: colors.dot }]} />
+                  <Text style={[styles.statusText, { color: colors.text }]}>{selectedOrder.status || 'Pending'}</Text>
+                </View>
+              </View>
+
+              {/* Customer Details */}
+              <View style={styles.sectionBox}>
+                <Text style={styles.sectionTitle}>Customer Information</Text>
+                <Text style={styles.infoText}><Text style={styles.infoLabel}>Name:</Text> {getUserName(selectedOrder)}</Text>
+                <Text style={styles.infoText}><Text style={styles.infoLabel}>Email:</Text> {selectedOrder.userEmail || 'N/A'}</Text>
+                <Text style={styles.infoText}><Text style={styles.infoLabel}>Phone:</Text> {selectedOrder.shippingAddress?.phone || selectedOrder.phone || 'N/A'}</Text>
+                
+                <Text style={[styles.infoLabel, { marginTop: 12, marginBottom: 4 }]}>Shipping Address:</Text>
+                <Text style={styles.infoText}>
+                  {selectedOrder.shippingAddress ? (
+                    `${selectedOrder.shippingAddress.street || ''}, ${selectedOrder.shippingAddress.city || ''}, ${selectedOrder.shippingAddress.state || ''} - ${selectedOrder.shippingAddress.pincode || ''}`
+                  ) : selectedOrder.address ? (
+                    typeof selectedOrder.address === 'object' ? 
+                      `${selectedOrder.address.street || ''}, ${selectedOrder.address.city || ''}` : selectedOrder.address
+                  ) : 'No address provided'}
+                </Text>
+              </View>
+
+              {/* Items */}
+              <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Items Ordered</Text>
+              {items.map((item: any, i: number) => (
+                <View key={i} style={styles.itemRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemName} numberOfLines={2}>{item.title || item.name}</Text>
+                    <Text style={styles.itemQty}>Qty: {item.quantity || 1}</Text>
+                  </View>
+                  <Text style={styles.itemPrice}>₹{(item.price || 0) * (item.quantity || 1)}</Text>
+                </View>
+              ))}
+
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total Amount</Text>
+                <Text style={styles.totalValue}>₹{(parseFloat(String(selectedOrder.totalAmount).replace(/[^0-9.]/g, '')) || 0).toFixed(2)}</Text>
+              </View>
+
+              {/* Action Buttons */}
+              <Text style={[styles.sectionTitle, { marginTop: 32 }]}>Update Status</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 40 }}>
+                {['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'].map((status) => {
+                  const isActive = selectedOrder.status === status;
+                  return (
+                    <TouchableOpacity
+                      key={status}
+                      style={[
+                        styles.statusBtn,
+                        isActive && styles.statusBtnActive
+                      ]}
+                      onPress={() => {
+                        if (onUpdateStatus && !isActive) {
+                          onUpdateStatus(selectedOrder.id, status);
+                          setSelectedOrder({ ...selectedOrder, status });
+                        }
+                      }}
+                    >
+                      <Text style={[
+                        styles.statusBtnText,
+                        isActive && styles.statusBtnTextActive
+                      ]}>{status}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
         </View>
-      </View>
+      </Modal>
     );
   };
 
@@ -147,8 +244,13 @@ export const AdminOrders: React.FC<AdminOrdersProps> = ({ orders, onUpdateStatus
         renderItem={renderOrder}
         ListHeaderComponent={renderHeader}
         contentContainerStyle={styles.content}
-        ListFooterComponent={<View style={{ height: 120 }} />}
+        ListFooterComponent={
+          displayOrders.length === 0 ? (
+            <Text style={{ textAlign: 'center', marginTop: 40, color: '#94A3B8' }}>No orders found.</Text>
+          ) : <View style={{ height: 120 }} />
+        }
       />
+      {renderOrderDetailsModal()}
     </View>
   );
 };
@@ -190,5 +292,30 @@ const styles = StyleSheet.create({
   orderBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   orderMeta: { flexDirection: 'row', alignItems: 'center' },
   orderMetaText: { fontSize: 12, color: '#94A3B8' },
-  orderTotal: { fontSize: 15, fontWeight: '700', color: '#0F172A' }
+  orderTotal: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#0F172A' },
+  closeBtn: { backgroundColor: '#F1F5F9', padding: 6, borderRadius: 20 },
+  
+  sectionBox: { backgroundColor: '#F8FAFC', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#F1F5F9' },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+  infoText: { fontSize: 14, color: '#334155', marginBottom: 6 },
+  infoLabel: { fontWeight: '600', color: '#64748B' },
+  
+  itemRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  itemName: { fontSize: 14, fontWeight: '600', color: '#0F172A', marginBottom: 4 },
+  itemQty: { fontSize: 12, color: '#64748B' },
+  itemPrice: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+  
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E2E8F0' },
+  totalLabel: { fontSize: 16, fontWeight: '600', color: '#0F172A' },
+  totalValue: { fontSize: 20, fontWeight: '800', color: '#3B82F6' },
+  
+  statusBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0' },
+  statusBtnActive: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
+  statusBtnText: { fontSize: 13, fontWeight: '600', color: '#64748B' },
+  statusBtnTextActive: { color: '#FFFFFF' },
 });

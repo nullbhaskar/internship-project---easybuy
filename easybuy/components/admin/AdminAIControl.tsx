@@ -406,7 +406,7 @@ export const AdminAIControl: React.FC<AdminAIControlProps> = ({ products, orders
       </View>
 
       {/* ── Manual Restock Section ── */}
-      <Text style={styles.sectionLabel}>MANUAL RESTOCK — YOU CONTROL</Text>
+      <Text style={styles.sectionLabel}>MANUAL RESTOCK</Text>
       {lowStockProductsList.length === 0 ? (
         <View style={[styles.card, { alignItems: 'center', paddingVertical: 24 }]}>
           <Ionicons name="checkmark-circle" size={32} color="#10B981" />
