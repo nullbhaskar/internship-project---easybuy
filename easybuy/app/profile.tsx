@@ -64,8 +64,8 @@ export default function ProfileScreen() {
   const ELITE_EMAIL = 'bhaskardaspatna@gmail.com';
   const isEliteUser = (user?.email || '').toLowerCase() === ELITE_EMAIL.toLowerCase();
 
-  const [userName, setUserName] = useState(user?.fullName || 'Bhaskar');
-  const [userEmail, setUserEmail] = useState(user?.email || 'bhaskar@example.com');
+  const [userName, setUserName] = useState(user?.fullName || (isAuthenticated ? '' : 'Guest'));
+  const [userEmail, setUserEmail] = useState(user?.email || (isAuthenticated ? '' : 'guest@easybuy.com'));
   const [ordersCount, setOrdersCount] = useState(2);
 
   // Additional Profile Fields
@@ -278,8 +278,8 @@ export default function ProfileScreen() {
   return (
     <SpatialDrawerWrapper
       ref={spatialDrawerRef}
-      userName={userName || 'Bhaskar'}
-      userEmail={user?.email || userEmail || 'bhaskar@email.com'}
+      userName={userName || 'Guest'}
+      userEmail={user?.email || userEmail || 'guest@easybuy.com'}
       userAvatar={user?.photoURL || undefined}
       isEliteUser={isEliteUser}
       onSelectMenuItem={(itemId) => {

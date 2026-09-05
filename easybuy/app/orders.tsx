@@ -776,13 +776,13 @@ export default function OrdersScreen() {
                 <View style={S.infoRowItem}>
                   <Text style={S.infoRowLabel}>Recipient Owner:</Text>
                   <Text style={[S.infoRowVal, isDark && S.textLight]}>
-                    {user?.fullName || auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Bhaskar Das'}
+                    {user?.fullName || auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Guest'}
                   </Text>
                 </View>
                 <View style={S.infoRowItem}>
                   <Text style={S.infoRowLabel}>Registered Email:</Text>
                   <Text style={[S.infoRowVal, isDark && S.textLight]}>
-                    {user?.email || auth.currentUser?.email || 'bhaskar@example.com'}
+                    {user?.email || auth.currentUser?.email || 'guest@easybuy.com'}
                   </Text>
                 </View>
                 <View style={S.infoRowItem}>

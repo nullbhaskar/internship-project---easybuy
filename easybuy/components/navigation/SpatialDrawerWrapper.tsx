@@ -65,14 +65,62 @@ interface SpatialDrawerWrapperProps {
   isEliteUser?: boolean;
 }
 
+
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
+const SHIFT_TRANSLATE_X = SCREEN_WIDTH * 0.74;
+
+export interface SpatialDrawerRef {
+  openDrawer: () => void;
+  closeDrawer: () => void;
+  toggleDrawer: () => void;
+  isOpen: boolean;
+}
+
+export interface MenuItemData {
+  id: string;
+  label: string;
+  icon: string;
+  badge?: string;
+  isLogout?: boolean;
+}
+
+const MAIN_MENU_ITEMS: MenuItemData[] = [
+  { id: 'categories', label: 'Categories', icon: 'grid-outline' },
+
+  { id: 'locations', label: 'Locations', icon: 'location-outline' },
+  { id: 'gift_ideas', label: 'Gift Ideas', icon: 'gift-outline', badge: 'SOON' },
+  { id: 'help', label: 'Help & Support', icon: 'help-circle-outline' },
+];
+
+const LOGOUT_ITEM: MenuItemData = {
+  id: 'logout',
+  label: 'Logout',
+  icon: 'log-out-outline',
+  isLogout: true,
+};
+
+const ALL_MENU_ITEMS = [...MAIN_MENU_ITEMS, LOGOUT_ITEM];
+
+interface SpatialDrawerWrapperProps {
+  children: React.ReactNode;
+  activeMenuItem?: string;
+  onSelectMenuItem?: (itemId: string) => void;
+  userName?: string;
+  userEmail?: string;
+  userAvatar?: string;
+  isEliteUser?: boolean;
+}
+
 export const SpatialDrawerWrapper = forwardRef<SpatialDrawerRef, SpatialDrawerWrapperProps>(
   (
     {
       children,
       activeMenuItem = 'categories',
       onSelectMenuItem,
-      userName = 'Bhaskar',
-      userEmail = 'bhaskar@email.com',
+      userName = 'Guest',
+      userEmail = 'guest@easybuy.com',
       userAvatar,
       isEliteUser = false,
     },

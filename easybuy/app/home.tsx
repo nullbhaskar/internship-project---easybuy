@@ -1283,7 +1283,7 @@ export default function HomeScreen() {
   const { openCart, totalItems, addToCart } = useCart();
   const { openWishlist, totalWishlistItems, toggleWishlist, isInWishlist } = useWishlist();
   const { user } = useAuth();
-  const [userName, setUserName] = useState(user?.fullName || 'Bhaskar');
+  const [userName, setUserName] = useState(user?.fullName || (isAuthenticated ? '' : 'Guest'));
   const [activeTab, setActiveTab] = useState('home');
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [adminBanners, setAdminBanners] = useState<any>({});
@@ -1356,7 +1356,7 @@ export default function HomeScreen() {
     const loadFreshGreeting = async () => {
     const currentMonth = new Date().getMonth();
     const simulatedWeather = (currentMonth === 5 || currentMonth === 6) ? 'rain' : (currentMonth === 11 || currentMonth === 0) ? 'cold' : 'pleasant';
-    const msg = getDynamicWelcomeMessage(userName || 'Bhaskar', {
+    const msg = getDynamicWelcomeMessage(userName || 'Guest', {
       wishlistCount: Object.values(favorites || {}).filter(Boolean).length,
       weather: simulatedWeather,
       campaign: 'none',
@@ -2545,8 +2545,8 @@ export default function HomeScreen() {
   return (
     <SpatialDrawerWrapper
       ref={spatialDrawerRef}
-      userName={user?.fullName || userName || 'Bhaskar'}
-      userEmail={user?.email || 'bhaskar@email.com'}
+      userName={user?.fullName || userName || 'Guest'}
+      userEmail={user?.email || 'guest@easybuy.com'}
       userAvatar={user?.photoURL || undefined}
       onSelectMenuItem={(itemId) => {
         if (itemId === 'categories') {
