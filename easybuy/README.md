@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/assets/images/easybuy_logo.png" alt="EasyBuy Logo" width="140" />
+  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/assets/images/easybuy_logo.png" alt="EasyBuy Logo" width="160" />
 
-  # 🛒 EasyBuy: Next-Gen AI E-Commerce
+  # EasyBuy: Next-Gen AI E-Commerce
 
-  **An intelligent, seamless, and highly personalized mobile shopping experience powered by Artificial Intelligence.**
+  **An enterprise-grade, highly personalized mobile shopping platform engineered with Artificial Intelligence.**
 
   [![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactnative.dev/)
   [![Expo](https://img.shields.io/badge/Expo-1B1F23?style=for-the-badge&logo=expo&logoColor=white)](https://expo.dev/)
@@ -14,97 +14,140 @@
 
 <br />
 
-## 🌟 Overview
+## 🚀 Project Overview
 
-**EasyBuy** is a modern, high-performance e-commerce mobile application designed to redefine the digital shopping journey. Built from the ground up for a university internship project, it integrates cutting-edge AI technologies, robust real-time database management, and a meticulously crafted user interface to deliver a truly premium experience.
+**EasyBuy** is a modern, high-performance e-commerce mobile application architected to redefine the digital shopping journey. Developed as a comprehensive university internship project, it integrates cutting-edge AI technologies, robust real-time database management, and a meticulously crafted user interface to deliver a production-ready, premium consumer experience.
 
-From dynamic AI-powered pricing to dual intelligent shopping assistants, EasyBuy represents the future of mobile retail.
+From dynamic AI-powered pricing engines to dual intelligent shopping assistants, EasyBuy represents the future of mobile retail architecture.
 
 ---
 
-## ✨ Signature Features
+## ✨ Core System Features
 
-### 🤖 Dual AI Shopping Assistants
-- **Interactive Voice Assistant:** Speak directly to the app to search for products, check orders, or ask for recommendations hands-free. Features a stunning interactive 3D orb UI.
-- **Context-Aware Chat AI:** A conversational text assistant powered by LLaMA 3 (via Groq) that understands your shopping context, helps you find products, and answers complex queries instantly.
+### 🧠 Artificial Intelligence Integration
+- **Interactive Voice Assistant:** Speak directly to the app for hands-free product searching, order tracking, and recommendations, featuring a custom 3D interactive orb UI.
+- **Context-Aware Chat AI:** A conversational text assistant powered by **LLaMA 3 (via Groq)** that parses user context and resolves complex queries in milliseconds.
+- **Catalog AI Scanner:** An automated backend audit system that scans the database for critical anomalies (e.g., $0 pricing errors, missing imagery, SEO optimization).
 
 ### ⚡ Smart Dynamic Pricing & Curation
-- **Intelligent Algorithms:** Real-time dynamic pricing that adjusts based on demand, time of day, and user behavior.
-- **Location-Aware Content:** The home screen dynamically curates products and banners based on your active location (e.g., "Curated for Gurgaon").
-- **Time-Contextual Greetings:** The app greets you dynamically ("Quiet night in", "Looking for something before the day ends?") based on the time and weather.
+- **Algorithmic Pricing:** Real-time dynamic pricing mechanics that adjust automatically based on inventory age, demand, and user behavior.
+- **Location-Aware Content:** The home architecture dynamically curates products and visual banners based on the user's active geolocation (e.g., "Curated for Gurgaon").
+- **Time-Contextual Greetings:** Dynamic UX logic adjusts greetings based on the user's local time and weather conditions.
 
-### 🔐 Enterprise-Grade Security
-- **Real-Time Email OTP:** Full email verification system sending live 6-digit OTP codes straight to the user's inbox during registration.
-- **Secure Guest Mode:** A robust guest fallback that allows users to browse seamlessly while locking protected features (Wishlist, Orders) behind beautifully designed login prompts.
+### 🔐 Enterprise-Grade Authentication
+- **Real-Time Email OTP:** Secure email verification system executing live 6-digit OTP codes via EmailJS during user registration.
+- **Frictionless Guest Mode:** A robust guest fallback state allowing seamless browsing while locking protected routes (Wishlist, Orders) behind beautifully designed auth prompts.
 
-### 🛒 Seamless Shopping Experience
-- **Fluid UI/UX:** Built with React Native Animated and Expo Haptics for buttery-smooth micro-animations, glassmorphic overlays, and tactile swipe gestures.
-- **Advanced Cart & Checkout:** Persistent sticky cart bars, multi-item bundling, and a streamlined checkout flow.
-- **Order Tracking:** Detailed visual timelines tracking orders from "Placed" to "Delivered".
-
-### 📊 Hidden Admin Dashboard & AI Control Center
-- **Store Management:** A powerful administrative interface to manage inventory, edit products, and update order statuses in real-time.
-- **AI Catalog Scanner:** An automated audit system that scans the database for critical bugs (e.g., $0 prices, missing images) and SEO warnings.
-- **AI Automation Settings:** Toggle smart auto-pricing, weekend discounts, and low-stock alerts natively from the Admin Control Center.
-- **Analytics:** Beautifully rendered SVG curved graphs displaying live revenue and stock distribution metrics.
+### 🛒 Advanced Shopping Architecture
+- **Fluid UI/UX:** Engineered using React Native Animated and Expo Haptics for 60fps micro-animations, glassmorphic overlays, and tactile swipe gestures.
+- **Advanced Cart Logic:** Persistent sticky cart states, multi-item bundling algorithms, and a streamlined, secure checkout flow.
 
 ---
 
-## 📸 Application Showcase
+## 📱 Application Showcase
 
-### Part 1
 <div align="center">
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img1.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img2.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img3.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img4.png" width="200" />
-</div>
-
-### Part 2
-<div align="center">
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img5.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img6.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img7.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img8.png" width="200" />
-</div>
-
-### Part 3
-<div align="center">
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img9.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img10.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img11.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img12.png" width="200" />
-</div>
-
-### Part 4
-<div align="center">
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img13.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img14.png" width="200" />
-  <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img15.png" width="200" />
+  <table style="border: none; background-color: transparent;">
+    <!-- ROW 1 -->
+    <tr>
+      <td align="center" width="33%">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img1.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Splash & Onboarding</b>
+      </td>
+      <td align="center" width="33%">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img2.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Intelligent Home Feed</b>
+      </td>
+      <td align="center" width="33%">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img3.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>3D Voice AI Assistant</b>
+      </td>
+    </tr>
+    <!-- ROW 2 -->
+    <tr>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img4.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Context-Aware AI Chat</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img5.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Elite User Profile</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img6.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Dynamic Checkout Flow</b>
+      </td>
+    </tr>
+    <!-- ROW 3 -->
+    <tr>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img7.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Order Tracking Timeline</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img8.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Admin Analytics Dashboard</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img9.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Inventory Intelligence</b>
+      </td>
+    </tr>
+    <!-- ROW 4 -->
+    <tr>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img10.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Real-time OTP Verification</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img11.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Location Mapping</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img12.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>AI Control Center</b>
+      </td>
+    </tr>
+    <!-- ROW 5 -->
+    <tr>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img13.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Catalog Scanner</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img14.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Admin Product Management</b>
+      </td>
+      <td align="center">
+        <img src="https://raw.githubusercontent.com/nullbhaskar/internship-project---easybuy/main/easybuy/screenshots/img15.png" width="220" style="border-radius: 15px;" />
+        <br /><br /><b>Secure Authentication</b>
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
 
-## 🛠 Tech Stack
+## 🛠 Technology Stack
 
 - **Frontend Core:** React Native, Expo, Expo Router, React Navigation
-- **State Management & Context:** React Context API (Auth, Cart, Wishlist, Location, Theme)
-- **Backend & Database:** Firebase (Firestore DB, Firebase Authentication, Firebase Storage)
-- **AI Integration:** Groq API (LLaMA 3) for lightning-fast natural language processing
-- **Styling & Animation:** Custom Stylesheets, React Native Animated API, Glassmorphism, Expo Blur, Expo Haptics
+- **State Architecture:** React Context API (Auth, Cart, Wishlist, Location, Theme)
+- **Backend & Database:** Google Firebase (Firestore DB, Authentication, Storage)
+- **AI Infrastructure:** Groq API (LLaMA 3) for real-time natural language processing
+- **Styling & Animation Engine:** Custom Stylesheets, React Native Reanimated, Glassmorphism UI, Expo Blur, Expo Haptics
 
 ---
 
-## 🚀 Getting Started
+## ⚙️ Local Development Setup
 
-Follow these steps to run the project locally on your machine.
+Follow these instructions to clone and run the project locally.
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v18 or higher)
 - npm or yarn
-- Expo Go app on your iOS/Android device (or a local emulator)
+- Expo Go app installed on your iOS/Android device (or local emulator setup)
 
-### Installation
+### Initialization
 
 1. **Clone the repository:**
    ```bash
@@ -117,18 +160,18 @@ Follow these steps to run the project locally on your machine.
    npm install
    ```
 
-3. **Start the development server:**
+3. **Start the Metro Bundler:**
    ```bash
    npx expo start
    ```
 
-4. **Run on your device:**
-   - Scan the QR code shown in the terminal using the **Expo Go** app on your phone.
-   - Or press `a` to open on an Android emulator, or `i` for an iOS simulator.
+4. **Launch on Device:**
+   - Scan the QR code rendered in the terminal using the **Expo Go** application.
+   - Alternatively, press `a` for Android Emulator or `i` for iOS Simulator.
 
 ---
 
 <div align="center">
-  <h3>Designed & Developed by <b>Bhaskar Das</b></h3>
-  <p>Internship Project Evaluation</p>
+  <h3>Architected & Engineered by <b>Bhaskar Das</b></h3>
+  <p><i>University Internship Project Evaluation</i></p>
 </div>
